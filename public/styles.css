@@ -63,18 +63,22 @@ body{
 /* ── login screen ────────────────────────────────────────── */
 .loginscreen{
   min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;
+  background:var(--bg);
 }
 .loginform{
-  width:100%;max-width:320px;display:flex;flex-direction:column;align-items:center;gap:14px;
-  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:28px 24px;
+  width:100%;max-width:340px;display:flex;flex-direction:column;align-items:center;gap:16px;
+  background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:36px 28px 32px;
+  box-shadow:0 12px 34px rgba(0,0,0,.35);
 }
+.loginform .mark{width:34px;height:34px;border-width:3px;margin-bottom:2px;}
 .loginform h1{
-  margin:0;font-family:var(--disp);font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-  font-size:20px;
+  margin:0 0 4px;font-family:var(--disp);font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  font-size:21px;
 }
-.loginform .field{width:100%;}
-.loginform input{width:100%;}
-.loginform .btn{width:100%;}
+.loginform .field{width:100%;gap:6px;}
+.loginform input{width:100%;padding:11px 12px;font-size:16px;}
+.loginform input:focus-visible{border-color:var(--green);}
+.loginform .btn{width:100%;margin-top:4px;}
 .loginerror{margin:0;font-size:13px;color:var(--red);text-align:center;}
 
 /* ── views ───────────────────────────────────────────────── */
@@ -91,7 +95,7 @@ label,.livebox span,.eyebrow{
   font-family:var(--disp);text-transform:uppercase;letter-spacing:.13em;
   font-size:11px;color:var(--muted);
 }
-input[type=date],input[type=number],textarea,select{
+input[type=date],input[type=number],input[type=text],input[type=password],textarea,select{
   font-family:var(--body);font-size:16px;color:var(--ink);
   background:#0b1412;border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;
 }

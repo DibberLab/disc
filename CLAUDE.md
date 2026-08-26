@@ -124,6 +124,14 @@ literal 20/12.
   and enforced in `shape.js`. `session_sets`' `CHECK` constraint only enforces
   a generous sanity bound (`0`–`200`) now, not the real cap — SQL can't
   reference the `users` table.
+- **`disc.dibberlab.me` is proxied through Cloudflare**, which overrides
+  `public/`'s origin `Cache-Control: public, max-age=300` with its own
+  4-hour edge cache for static files (`index.html` is `no-cache` and stays
+  `DYNAMIC` at the edge — this only bites `styles.css`/`*.js`). A deploy that
+  changes anything in `public/` and doesn't bump its `?v=N` query string in
+  `index.html` can sit invisible behind Cloudflare's cache for up to 4 hours.
+  Bump every `?v=` in `index.html` on any `public/` deploy — cheaper than
+  reasoning about whether a given edge node still has the old file.
 - **Never edit `001_init.sql` once it has run on the droplet.** Add `002_*.sql`.
 - **Never change the port mapping in `docker-compose.yml` to a bare
   `8412:8080`.** The `127.0.0.1:` prefix is what keeps the app behind nginx and
