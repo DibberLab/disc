@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Disc Golf Training Log</title>
+<meta name="theme-color" content="#0f1a17">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=2">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <span>
+        <b>Training Log</b>
+        <em>20 putters · 12 mids &amp; drivers</em>
+      </span>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab is-active" role="tab" aria-selected="true" data-view="log">Log a session</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="history">History</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="analytics">Analytics</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ────────────────────────────── LOG ────────────────────────────── -->
+  <section id="view-log" class="view is-active">
+
+    <div class="sessionbar">
+      <div class="field">
+        <label for="date">Session date</label>
+        <input id="date" type="date">
+      </div>
+      <p id="dateNote" class="datenote"></p>
+      <div class="livebox">
+        <div><span>Putts</span><b id="liveP">0<i>/0</i></b><em id="livePpct">—</em></div>
+        <div><span>Net</span><b id="liveN">0<i>/0</i></b><em id="liveNpct">—</em></div>
+      </div>
+    </div>
+
+    <article class="station" data-station="p15">
+      <h2><span class="tag">A</span> Putting · 15 ft <em>5 sets of 20</em></h2>
+      <div class="sets" data-grid="p15"></div>
+    </article>
+
+    <article class="station" data-station="p25">
+      <h2><span class="tag">B</span> Putting · 25 ft <em>5 sets of 20</em></h2>
+      <div class="sets" data-grid="p25"></div>
+    </article>
+
+    <article class="station net">
+      <h2><span class="tag">C</span> Net · 12 mids &amp; drivers <em>discs inside the rectangle</em></h2>
+      <div class="netcols">
+        <div>
+          <h3>Backhand</h3>
+          <div class="sets" data-grid="bh"></div>
+        </div>
+        <div>
+          <h3>Forehand</h3>
+          <div class="sets" data-grid="fh"></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="station">
+      <h2><span class="tag">D</span> Notes <em>what worked, what to fix</em></h2>
+      <textarea id="notes" rows="2" placeholder="Left-hand grip pressure, headwind out of the north, new putter…"></textarea>
+    </article>
+
+    <div class="actions">
+      <button id="save" class="btn primary">Save session</button>
+      <button id="reset" class="btn ghost">Clear the form</button>
+      <span id="saveNote" class="savenote" role="status"></span>
+    </div>
+  </section>
+
+  <!-- ──────────────────────────── HISTORY ──────────────────────────── -->
+  <section id="view-history" class="view">
+    <div class="toolbar">
+      <button id="exportCsv" class="btn">Download CSV</button>
+      <button id="exportJson" class="btn">Back up as JSON</button>
+      <button id="importJson" class="btn">Restore a backup</button>
+      <button id="sample" class="btn ghost">Load sample data</button>
+      <button id="wipe" class="btn danger">Delete everything</button>
+      <input id="fileInput" type="file" accept="application/json" hidden>
+    </div>
+    <div id="historyMount"></div>
+  </section>
+
+  <!-- ─────────────────────────── ANALYTICS ─────────────────────────── -->
+  <section id="view-analytics" class="view">
+    <div id="analyticsMount"></div>
+  </section>
+
+</main>
+
+<footer class="foot wrap">
+  <p>Sessions save to this device first and sync to the server when there is a signal, so logging works at the basket with no bars. <span id="syncStatus"></span></p>
+  <p id="storageWarn" class="warn" hidden>This browser is blocking local storage, so sessions will disappear when you close the tab. Download a CSV or JSON before you leave.</p>
+</footer>
+
+<script src="charts.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

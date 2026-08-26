@@ -1,0 +1,17 @@
+{
+  "name": "disc",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Disc golf training log — disc.dibberlab.me",
+  "main": "server/index.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "express": "^4.21.2"
+  }
+}

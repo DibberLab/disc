@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disc Golf Training Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#111111;
+    --rule:#111111;
+    --hair:#9a9a9a;
+    --fill:#ececec;
+    --accent:#14624f;
+    --paper:#ffffff;
+    --desk:#5c6360;
+    --disp:"Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+    --body:"Barlow", Helvetica, Arial, sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--desk);
+    font-family:var(--body);
+    color:var(--ink);
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+
+  /* ---------- screen-only control bar ---------- */
+  .bar{
+    position:sticky; top:0; z-index:10;
+    display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end;
+    padding:14px 18px;
+    background:#1d2321; color:#fff;
+    border-bottom:2px solid var(--accent);
+  }
+  .bar h1{
+    font-family:var(--disp); font-weight:700; text-transform:uppercase;
+    letter-spacing:.06em; font-size:19px; margin:0 12px 0 0; line-height:1.6;
+  }
+  .field{display:flex; flex-direction:column; gap:4px;}
+  .field label{
+    font-family:var(--disp); text-transform:uppercase; letter-spacing:.1em;
+    font-size:11px; color:#a9b5b0;
+  }
+  .field input{
+    font-family:var(--body); font-size:14px; padding:7px 9px;
+    border:1px solid #47514d; background:#0f1413; color:#fff; border-radius:2px;
+  }
+  .bar button{
+    font-family:var(--disp); text-transform:uppercase; letter-spacing:.09em;
+    font-weight:700; font-size:14px; padding:9px 20px; cursor:pointer;
+    background:var(--accent); color:#fff; border:none; border-radius:2px;
+  }
+  .bar button:hover{background:#1a7a63;}
+  .bar button:focus-visible, .bar input:focus-visible{outline:2px solid #7fe3c6; outline-offset:2px;}
+  .hint{font-size:12px; color:#a9b5b0; max-width:230px; line-height:1.35;}
+
+  .stack{padding:26px 12px 60px; display:flex; flex-direction:column; align-items:center; gap:22px;}
+
+  /* ---------- the sheet ---------- */
+  .sheet{
+    width:7.6in; min-height:10in;
+    background:var(--paper); color:var(--ink);
+    padding:0; box-shadow:0 6px 20px rgba(0,0,0,.35);
+    display:flex; flex-direction:column;
+  }
+
+  .masthead{
+    display:flex; justify-content:space-between; align-items:flex-end;
+    border-bottom:3px solid var(--rule); padding-bottom:5px;
+  }
+  .masthead .title{
+    font-family:var(--disp); font-weight:700; text-transform:uppercase;
+    font-size:30px; line-height:.95; letter-spacing:.01em;
+  }
+  .masthead .sub{
+    font-family:var(--disp); font-weight:500; text-transform:uppercase;
+    letter-spacing:.22em; font-size:10px; color:var(--accent); margin-top:3px;
+  }
+  .stamps{display:flex; gap:10px; align-items:flex-end;}
+  .stamp{display:flex; flex-direction:column; gap:2px;}
+  .stamp span{
+    font-family:var(--disp); text-transform:uppercase; letter-spacing:.14em; font-size:9px;
+  }
+  .stamp .line{
+    border-bottom:1.5px solid var(--rule); height:19px;
+    font-family:var(--body); font-weight:600; font-size:13px;
+    display:flex; align-items:flex-end; padding-bottom:1px;
+  }
+  .stamp.date .line{width:1.5in;}
+  .stamp.cond .line{width:1.5in;}
+
+  .station{margin-top:13px;}
+  .stationhead{
+    display:flex; align-items:baseline; gap:9px;
+    border-bottom:1.5px solid var(--rule); padding-bottom:2px;
+  }
+  .tag{
+    font-family:var(--disp); font-weight:700; text-transform:uppercase;
+    background:var(--accent); color:#fff; font-size:10px; letter-spacing:.14em;
+    padding:2px 6px 1px;
+  }
+  .stationhead .name{
+    font-family:var(--disp); font-weight:700; text-transform:uppercase;
+    font-size:19px; letter-spacing:.02em;
+  }
+  .stationhead .meta{
+    font-family:var(--disp); font-weight:500; text-transform:uppercase;
+    font-size:10px; letter-spacing:.13em; color:#555; margin-left:auto;
+  }
+
+  table{width:100%; border-collapse:collapse;}
+  th{
+    font-family:var(--disp); font-weight:600; text-transform:uppercase;
+    font-size:9px; letter-spacing:.13em; color:#444;
+    padding:3px 4px 2px; text-align:left; border-bottom:1px solid var(--hair);
+  }
+  th.c{text-align:center;}
+  td{border-bottom:1px solid var(--hair); padding:0;}
+
+  .setno{
+    font-family:var(--disp); font-weight:700; font-size:13px;
+    text-transform:uppercase; letter-spacing:.06em; width:.62in; padding-left:2px;
+  }
+
+  /* disc tick strip — one cell per disc in the set */
+  .strip{display:flex;}
+  .strip i{
+    display:block; height:.235in; border-left:1px solid var(--hair);
+    font-style:normal; font-family:var(--body); font-size:6px; color:#b5b5b5;
+    text-align:center; line-height:.235in;
+  }
+  .strip i:first-child{border-left:none;}
+  .putt .strip i{width:.235in;}
+  .net .strip i{width:.185in;}
+  .strip.shade i:nth-child(5n){background:var(--fill);}
+
+  .box{
+    border:1.5px solid var(--rule); height:.235in; width:.52in; margin:2px auto;
+  }
+  td.boxcell{width:.6in;}
+
+  .totalrow td{border-bottom:none; border-top:2px solid var(--rule); padding-top:4px;}
+  .total{
+    display:flex; align-items:center; justify-content:flex-end; gap:8px;
+    font-family:var(--disp); font-weight:700; text-transform:uppercase;
+    font-size:12px; letter-spacing:.11em;
+  }
+  .total .bigbox{border:2px solid var(--rule); height:.3in; width:.75in;}
+  .total .of{font-size:11px; color:#555; letter-spacing:.08em;}
+
+  .netgrid th.split{text-align:center; border-left:1px solid var(--hair);}
+  td.split{border-left:1px solid var(--hair);}
+
+  .footer{margin-top:auto; padding-top:12px;}
+  .notes{
+    font-family:var(--disp); text-transform:uppercase; letter-spacing:.14em; font-size:9px;
+    color:#444; margin-bottom:3px;
+  }
+  .noteline{border-bottom:1px solid var(--hair); height:.26in;}
+
+  .daytotals{
+    display:flex; gap:0; margin-top:9px; border:2px solid var(--rule);
+  }
+  .daytotals div{
+    flex:1; padding:5px 8px 7px; border-left:1px solid var(--rule);
+  }
+  .daytotals div:first-child{border-left:none;}
+  .daytotals span{
+    display:block; font-family:var(--disp); text-transform:uppercase;
+    letter-spacing:.13em; font-size:9px; color:#444;
+  }
+  .daytotals b{
+    display:block; font-family:var(--disp); font-weight:700; font-size:15px;
+    border-bottom:1.5px solid var(--rule); margin-top:8px; height:.24in;
+  }
+  .daytotals em{
+    font-style:normal; font-family:var(--disp); font-size:10px; color:#666;
+    letter-spacing:.1em;
+  }
+
+  /* ---------- print ---------- */
+  @page{size:letter portrait; margin:.45in;}
+  @media print{
+    body{background:#fff;}
+    .bar{display:none;}
+    .stack{padding:0; gap:0; display:block;}
+    .sheet{
+      width:100%; min-height:0; height:auto; box-shadow:none;
+      break-after:page; page-break-after:always;
+    }
+    .sheet:last-child{break-after:auto; page-break-after:auto;}
+  }
+  @media (max-width:820px){
+    .sheet{width:100%; transform:none;}
+    .stack{padding:16px 8px 40px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>Training Log</h1>
+  <div class="field">
+    <label for="date">Date on sheet</label>
+    <input id="date" type="text" placeholder="leave blank to fill in by hand" size="26">
+  </div>
+  <div class="field">
+    <label for="copies">Sheets to print</label>
+    <input id="copies" type="number" min="1" max="60" value="1" style="width:90px">
+  </div>
+  <button id="print">Print sheets</button>
+  <p class="hint">Each sheet prints on its own page. Print a stack now, date them at the basket.</p>
+</div>
+
+<div class="stack" id="stack"></div>
+
+<script>
+const stack = document.getElementById('stack');
+const dateInput = document.getElementById('date');
+const copiesInput = document.getElementById('copies');
+
+function strip(n, shade){
+  let cells = '';
+  for(let i=1;i<=n;i++) cells += '<i>'+i+'</i>';
+  return '<div class="strip'+(shade?' shade':'')+'">'+cells+'</div>';
+}
+
+function puttStation(tag, name, meta){
+  let rows = '';
+  for(let s=1;s<=5;s++){
+    rows += '<tr>'+
+      '<td class="setno">Set '+s+'</td>'+
+      '<td>'+strip(20,true)+'</td>'+
+      '<td class="boxcell"><div class="box"></div></td>'+
+    '</tr>';
+  }
+  return '<section class="station putt">'+
+    '<div class="stationhead"><span class="tag">'+tag+'</span>'+
+      '<span class="name">'+name+'</span><span class="meta">'+meta+'</span></div>'+
+    '<table><thead><tr>'+
+      '<th>Set</th><th>Disc 1 &rarr; 20 &middot; mark each one in the chains</th>'+
+      '<th class="c">Made /20</th>'+
+    '</tr></thead><tbody>'+rows+
+    '<tr class="totalrow"><td colspan="3"><div class="total">'+
+      '<span class="of">Total made out of 100 &nbsp;=&nbsp; make %</span>'+
+      '<div class="bigbox"></div></div></td></tr>'+
+    '</tbody></table></section>';
+}
+
+function netStation(){
+  let rows = '';
+  for(let r=1;r<=5;r++){
+    rows += '<tr>'+
+      '<td class="setno">Rd '+r+'</td>'+
+      '<td>'+strip(12,false)+'</td>'+
+      '<td class="boxcell"><div class="box"></div></td>'+
+      '<td class="split">'+strip(12,false)+'</td>'+
+      '<td class="boxcell"><div class="box"></div></td>'+
+    '</tr>';
+  }
+  return '<section class="station net">'+
+    '<div class="stationhead"><span class="tag">C</span>'+
+      '<span class="name">Net &middot; 12 mids &amp; drivers</span>'+
+      '<span class="meta">hits inside the rectangle &middot; run between putting sets</span></div>'+
+    '<table class="netgrid"><thead><tr>'+
+      '<th>Round</th><th>Backhand &middot; disc 1 &rarr; 12</th><th class="c">In /12</th>'+
+      '<th class="split">Forehand &middot; disc 1 &rarr; 12</th><th class="c">In /12</th>'+
+    '</tr></thead><tbody>'+rows+
+    '<tr class="totalrow"><td colspan="5"><div class="total">'+
+      '<span class="of">Backhand /60</span><div class="bigbox"></div>'+
+      '<span class="of" style="margin-left:14px">Forehand /60</span><div class="bigbox"></div>'+
+    '</div></td></tr></tbody></table></section>';
+}
+
+function sheet(dateText){
+  return '<article class="sheet">'+
+    '<header class="masthead">'+
+      '<div><div class="title">Putting &amp; Net<br>Session Log</div>'+
+      '<div class="sub">20 putters &middot; 12 mids/drivers</div></div>'+
+      '<div class="stamps">'+
+        '<div class="stamp date"><span>Date</span><div class="line">'+dateText+'</div></div>'+
+        '<div class="stamp cond"><span>Wind / surface / notes</span><div class="line"></div></div>'+
+      '</div>'+
+    '</header>'+
+    puttStation('A','Putting &middot; 15 ft','5 sets of 20 &middot; 100 putts') +
+    puttStation('B','Putting &middot; 25 ft','5 sets of 20 &middot; 100 putts') +
+    netStation() +
+    '<footer class="footer">'+
+      '<div class="notes">What was working / what to fix tomorrow</div>'+
+      '<div class="noteline"></div><div class="noteline"></div>'+
+      '<div class="daytotals">'+
+        '<div><span>15 ft made</span><b></b><em>of 100</em></div>'+
+        '<div><span>25 ft made</span><b></b><em>of 100</em></div>'+
+        '<div><span>Putts made</span><b></b><em>of 200</em></div>'+
+        '<div><span>Net hits</span><b></b><em>of 120</em></div>'+
+      '</div>'+
+    '</footer>'+
+  '</article>';
+}
+
+function render(){
+  const n = Math.min(60, Math.max(1, parseInt(copiesInput.value || '1', 10)));
+  const d = dateInput.value.trim();
+  stack.innerHTML = Array.from({length:n}, () => sheet(d)).join('');
+}
+
+dateInput.addEventListener('input', render);
+copiesInput.addEventListener('input', render);
+document.getElementById('print').addEventListener('click', () => window.print());
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+services:
+  disc:
+    build: .
+    container_name: disc
+    restart: unless-stopped
+    # Bound to loopback on purpose: nginx is the only thing that should reach
+    # it. Never change this to a bare "8412:8080" — that publishes the app on
+    # the droplet's public IP, bypassing nginx and TLS.
+    ports:
+      - "127.0.0.1:${PORT_HOST:-8412}:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      DB_FILE: /data/disc.sqlite
+      DG_WRITE_TOKEN: ${DG_WRITE_TOKEN:-}
+      TZ: America/Chicago
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
