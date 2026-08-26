@@ -16,6 +16,13 @@
 
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
+/* The browser's own [hidden]{display:none} rule lives in the UA stylesheet,
+   so any author rule that sets `display` on the same element — .loginscreen
+   and .sessionbar both do, for their flex layout — silently wins and the
+   element stays visible despite `hidden` being set. Reassert it here with
+   !important so `hidden` always means hidden, full stop, regardless of what
+   display any class sets. */
+[hidden]{display:none !important;}
 body{
   background:var(--bg);
   color:var(--ink);
