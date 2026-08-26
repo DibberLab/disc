@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=3">
+<link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
 
@@ -47,10 +47,29 @@
     </nav>
     <div class="userbar">
       <span id="whoAmI"></span>
+      <button id="addAccountBtn" class="btn ghost">Add account</button>
       <button id="logoutBtn" class="btn ghost">Log out</button>
     </div>
   </div>
 </header>
+
+<div class="wrap">
+  <form id="addAccountForm" class="sessionbar addaccount" hidden>
+    <div class="field">
+      <label for="newUsername">New username</label>
+      <input id="newUsername" type="text" autocomplete="off" required>
+    </div>
+    <div class="field">
+      <label for="newPassword">Temporary password</label>
+      <input id="newPassword" type="password" autocomplete="new-password" required minlength="8">
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn primary">Create account</button>
+      <button type="button" id="cancelAddAccount" class="btn ghost">Cancel</button>
+    </div>
+    <span id="addAccountNote" class="savenote" role="status"></span>
+  </form>
+</div>
 
 <main class="wrap">
 
@@ -137,9 +156,9 @@
 
 </div>
 
-<script src="charts.js?v=3"></script>
-<script src="store.js?v=3"></script>
-<script src="auth.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="charts.js?v=4"></script>
+<script src="store.js?v=4"></script>
+<script src="auth.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

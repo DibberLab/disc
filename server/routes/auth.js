@@ -49,4 +49,16 @@ router.get('/me', (req, res) => {
   res.json({ username: req.user.username, putterMax: req.user.putterMax, driverMax: req.user.driverMax });
 });
 
+/* Creates a new account. Deliberately NOT in index.js's OPEN_PATHS, so
+   req.user is guaranteed here too — there's no public signup, only an
+   already-logged-in user can add another one (from the app, instead of
+   needing shell access to run scripts/create-user.js). */
+router.post('/register', (req, res, next) => {
+  try {
+    const { username, password } = req.body || {};
+    auth.createUser(username, password);
+    res.status(201).json({ username });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

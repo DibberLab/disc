@@ -2,6 +2,10 @@
 
 const crypto = require('crypto');
 const db = require('./db');
+const { ValidationError } = require('./shape');
+
+const USERNAME_RE = /^[a-zA-Z0-9_-]{2,32}$/;
+const MIN_PASSWORD_LEN = 8;
 
 /* scrypt params: Node's own recommended minimums (N=16384, r=8, p=1). Stored
    alongside the hash so a future param bump doesn't break existing accounts
@@ -74,6 +78,29 @@ function findUserByUsername(username) {
   ).get(username);
 }
 
+/* Creates a new account with default putter/driver maxes (20/14 — see the
+   `users` table default). Used by both scripts/create-user.js and
+   POST /api/register; the route is what gates this to logged-in users only
+   — there's deliberately no public signup, this function itself doesn't
+   know or care who's calling it. Throws ValidationError (never a raw SQLite
+   error) so callers can turn it into a clean 400. */
+function createUser(username, password) {
+  if (typeof username !== 'string' || !USERNAME_RE.test(username)) {
+    throw new ValidationError('username must be 2-32 characters: letters, numbers, - or _');
+  }
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD_LEN) {
+    throw new ValidationError(`password must be at least ${MIN_PASSWORD_LEN} characters`);
+  }
+  if (findUserByUsername(username)) {
+    throw new ValidationError('that username is already taken');
+  }
+  const hash = hashPassword(password);
+  const info = db.handle().prepare(
+    'INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)'
+  ).run(username, hash, db.nowIso());
+  return info.lastInsertRowid;
+}
+
 /* ---------------------------------------------------------------- cookie
    No cookie-parser dependency — the app only ever sets/reads this one
    cookie, so a tiny hand-rolled parse is less than pulling in a package. */
@@ -93,6 +120,6 @@ function tokenFromRequest(req) {
 module.exports = {
   hashPassword, verifyPassword,
   createSession, getSession, destroySession,
-  findUserByUsername,
+  findUserByUsername, createUser,
   COOKIE_NAME, tokenFromRequest
 };

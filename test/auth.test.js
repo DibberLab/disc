@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const db = require('../server/db');
 const auth = require('../server/auth');
+const { ValidationError } = require('../server/shape');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'disc-auth-test-'));
 const FILE = path.join(TMP, 'test.sqlite');
@@ -55,4 +56,34 @@ test('tokenFromRequest parses the session cookie out of a raw Cookie header', ()
   const req = { headers: { cookie: 'other=1; dg_session=abc123; another=2' } };
   assert.equal(auth.tokenFromRequest(req), 'abc123');
   assert.equal(auth.tokenFromRequest({ headers: {} }), null);
+});
+
+/* --------------------------------------------------------------- createUser */
+
+test('createUser makes a login-able account with default maxes', () => {
+  const id = auth.createUser('newperson', 'a-fine-password');
+  const user = auth.findUserByUsername('newperson');
+  assert.equal(user.id, id);
+  assert.equal(auth.verifyPassword('a-fine-password', user.password_hash), true);
+  assert.equal(user.putter_max, 20);
+  assert.equal(user.driver_max, 14);
+});
+
+test('createUser refuses a username that is already taken', () => {
+  auth.createUser('taken', 'a-fine-password');
+  assert.throws(() => auth.createUser('taken', 'another-password'), ValidationError);
+  // and the original account's password is untouched
+  const user = auth.findUserByUsername('taken');
+  assert.equal(auth.verifyPassword('a-fine-password', user.password_hash), true);
+});
+
+test('createUser refuses a short password', () => {
+  assert.throws(() => auth.createUser('shortpw', 'short'), ValidationError);
+  assert.equal(auth.findUserByUsername('shortpw'), undefined);
+});
+
+test('createUser refuses an invalid username', () => {
+  assert.throws(() => auth.createUser('', 'a-fine-password'), ValidationError);
+  assert.throws(() => auth.createUser('has a space', 'a-fine-password'), ValidationError);
+  assert.throws(() => auth.createUser(undefined, 'a-fine-password'), ValidationError);
 });

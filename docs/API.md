@@ -11,14 +11,18 @@ and fixed width is what makes `<` chronological.
 
 Username + password, server-side session (table `web_sessions`, not a
 signed/stateless cookie — the cookie is just a high-entropy lookup key, so
-logout is a plain row delete). Accounts are created with
-`scripts/create-user.js`, not a signup endpoint.
+logout is a plain row delete). No public signup: `/api/register` exists but
+is gated the same as everything else (not in `index.js`'s `OPEN_PATHS`), so
+only an already-logged-in user can create another account — that's the "Add
+account" button in the app. `scripts/create-user.js` is still how the very
+first account gets created (and the only way to reset a password today).
 
 | Method | Path | Notes |
 |---|---|---|
 | `POST` | `/api/login` | `{username, password}` → `200` + `Set-Cookie` + `{username, putterMax, driverMax}`, or `401`. |
 | `POST` | `/api/logout` | Destroys the session, clears the cookie. `204`. |
 | `GET` | `/api/me` | `{username, putterMax, driverMax}` for the caller, or `401`. |
+| `POST` | `/api/register` | **Requires login.** `{username, password}` → `201` + `{username}`. New account gets default maxes (20/14). `400` on a taken username, an invalid one (2-32 chars, letters/numbers/`-`/`_`), or a password under 8 characters. |
 
 ## The session shape
 

@@ -35,6 +35,58 @@
     $('#logoutBtn').addEventListener('click', function () {
       fetch('/api/logout', { method: 'POST' }).then(function () { global.location.reload(); });
     });
+    wireAddAccount();
+  }
+
+  /* Only reachable once logged in — the button/panel live inside #appRoot,
+     and POST /api/register itself is gated server-side (index.js's auth
+     middleware doesn't put it in OPEN_PATHS), so this is never a public
+     signup form, just a faster path than shelling in to run
+     scripts/create-user.js. */
+  function wireAddAccount() {
+    var btn = $('#addAccountBtn');
+    var form = $('#addAccountForm');
+    var note = $('#addAccountNote');
+
+    btn.addEventListener('click', function () {
+      form.hidden = !form.hidden;
+      note.textContent = '';
+      if (!form.hidden) $('#newUsername').focus();
+    });
+
+    $('#cancelAddAccount').addEventListener('click', function () {
+      form.hidden = true;
+      form.reset();
+      note.textContent = '';
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var username = $('#newUsername').value.trim();
+      var password = $('#newPassword').value;
+      note.textContent = 'Creating…';
+      note.className = 'savenote';
+      fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username, password: password })
+      }).then(function (res) {
+        return res.json().then(function (body) { return { ok: res.ok, body: body }; });
+      }).then(function (r) {
+        if (!r.ok) {
+          note.textContent = r.body.error || 'Could not create that account.';
+          note.className = 'savenote bad';
+          return;
+        }
+        note.textContent = '';
+        form.reset();
+        form.hidden = true;
+        alert('Account "' + r.body.username + '" created. Hand them the temporary password to log in with — they can change it later via scripts/create-user.js.');
+      }).catch(function () {
+        note.textContent = "Couldn't reach the server. Check the connection and try again.";
+        note.className = 'savenote bad';
+      });
+    });
   }
 
   function wireLoginForm(onReady) {

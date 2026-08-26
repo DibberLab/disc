@@ -59,6 +59,8 @@ body{
 .tab.is-active{background:var(--green-deep);color:#fff;}
 .userbar{display:flex;align-items:center;gap:10px;}
 .userbar span{font-family:var(--disp);text-transform:uppercase;letter-spacing:.1em;font-size:12px;color:var(--muted);}
+.addaccount{margin-top:16px;}
+.addaccount .field{min-width:200px;}
 
 /* ── login screen ────────────────────────────────────────── */
 .loginscreen{

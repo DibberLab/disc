@@ -69,8 +69,11 @@ literal 20/12.
   user, no login." Username + password, server-side session cookie
   (`web_sessions` table, `scrypt` hashing — no bcrypt, no second native
   dependency alongside `better-sqlite3`). `DG_WRITE_TOKEN` is gone, not kept
-  alongside real auth. No signup form — accounts are created with
-  `scripts/create-user.js`.
+  alongside real auth. **No public signup** — `POST /api/register` exists
+  (the in-app "Add account" button) but is gated exactly like every other
+  route, so only an already-logged-in user can create another account.
+  `scripts/create-user.js` is still the only way to create the very first
+  account, or to reset anyone's password.
 - **Full visibility, scoped writes.** Every logged-in user sees every
   account's sessions (History, and Analytics via its user switcher). Nobody
   can create, edit, or delete a session that isn't their own — ownership is
