@@ -64,7 +64,7 @@ body{
 }
 .tab:hover{color:var(--ink);}
 .tab.is-active{background:var(--green-deep);color:#fff;}
-.userbar{display:flex;align-items:center;gap:10px;}
+.userbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;}
 .userbar span{font-family:var(--disp);text-transform:uppercase;letter-spacing:.1em;font-size:12px;color:var(--muted);}
 .addaccount{margin-top:16px;}
 .addaccount .field{min-width:200px;}
@@ -256,4 +256,6 @@ svg{display:block;width:100%;height:auto;overflow:visible;}
   .livebox{margin-left:0;}
   .tabs{width:100%;}
   .tab{flex:1;padding:9px 6px;font-size:12px;}
+  .userbar{width:100%;justify-content:flex-start;}
+  .userbar .btn{padding:8px 10px;font-size:12px;}
 }
