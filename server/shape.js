@@ -1,6 +1,6 @@
 'use strict';
 
-const { STATIONS, STATION_KEYS, DATE_RE } = require('./config');
+const { STATIONS, STATION_KEYS, DATE_RE, maxesForUser } = require('./config');
 
 /* Wire shape (identical to what public/app.js has always held in memory,
    plus updatedAt):
@@ -25,8 +25,10 @@ function isIsoDate(v) {
 
 /* Coerce one station array. Throws on anything that is not null or an
    in-range integer — the client clamps, the server refuses. Silently
-   clamping here would hide a real client bug. */
-function cleanStation(key, value) {
+   clamping here would hide a real client bug. `max` is the caller's
+   resolved per-user putter/driver count (see config.maxesForUser), not a
+   fixed constant — `sets` (how many sets get thrown) is still fixed. */
+function cleanStation(key, value, max) {
   const cfg = STATIONS[key];
   if (value === undefined || value === null) return new Array(cfg.sets).fill(null);
   if (!Array.isArray(value)) throw new ValidationError(`${key} must be an array`);
@@ -39,22 +41,27 @@ function cleanStation(key, value) {
     if (typeof v !== 'number' || !Number.isInteger(v)) {
       throw new ValidationError(`${key}[${i}] must be an integer or null`);
     }
-    if (v < 0 || v > cfg.max) {
-      throw new ValidationError(`${key}[${i}] must be between 0 and ${cfg.max}`);
+    if (v < 0 || v > max) {
+      throw new ValidationError(`${key}[${i}] must be between 0 and ${max}`);
     }
     out[i] = v;
   }
   return out;
 }
 
-/* Validate an inbound session. `date` from the URL path wins over the body. */
-function parseSession(body, dateFromPath) {
+/* Validate an inbound session. `date` from the URL path wins over the body.
+   `user` ({putterMax, driverMax}) resolves the per-user maxes; omit it (e.g.
+   in tests that don't care about ownership) to fall back to config.js's
+   defaults. `userId`/`username`, if present in the body, are ignored —
+   ownership always comes from the caller's session, never the payload. */
+function parseSession(body, dateFromPath, user) {
   if (!body || typeof body !== 'object') throw new ValidationError('body must be an object');
   const date = dateFromPath || body.date;
   if (!isIsoDate(date)) throw new ValidationError('date must be YYYY-MM-DD');
 
+  const maxes = maxesForUser(user);
   const out = { date, notes: '', updatedAt: null };
-  for (const key of STATION_KEYS) out[key] = cleanStation(key, body[key]);
+  for (const key of STATION_KEYS) out[key] = cleanStation(key, body[key], maxes[key]);
 
   if (body.notes !== undefined && body.notes !== null) {
     if (typeof body.notes !== 'string') throw new ValidationError('notes must be a string');
@@ -78,11 +85,20 @@ function hasAnyThrow(session) {
   return STATION_KEYS.some((k) => session[k].some((v) => v !== null));
 }
 
-/* Rows out of the DB -> wire shape. `setRows` may cover many sessions. */
+/* Rows out of the DB -> wire shape. `setRows` may cover many sessions.
+   `userId`/`username`/`putterMax`/`driverMax` are only present when the row
+   came from a query that joined `users` (the full-visibility read paths) —
+   a plain per-owner query doesn't need to tell the caller who they already
+   know they are. putterMax/driverMax let the client compute percentages
+   correctly for a row that isn't necessarily the viewer's own. */
 function rowsToSessions(sessionRows, setRows) {
   const byId = new Map();
   for (const r of sessionRows) {
     const s = { date: r.date, notes: r.notes, updatedAt: r.updated_at };
+    if (r.user_id !== undefined) s.userId = r.user_id;
+    if (r.username !== undefined) s.username = r.username;
+    if (r.putter_max !== undefined) s.putterMax = r.putter_max;
+    if (r.driver_max !== undefined) s.driverMax = r.driver_max;
     for (const k of STATION_KEYS) s[k] = new Array(STATIONS[k].sets).fill(null);
     byId.set(r.id, s);
   }

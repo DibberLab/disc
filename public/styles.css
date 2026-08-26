@@ -57,6 +57,25 @@ body{
 }
 .tab:hover{color:var(--ink);}
 .tab.is-active{background:var(--green-deep);color:#fff;}
+.userbar{display:flex;align-items:center;gap:10px;}
+.userbar span{font-family:var(--disp);text-transform:uppercase;letter-spacing:.1em;font-size:12px;color:var(--muted);}
+
+/* ── login screen ────────────────────────────────────────── */
+.loginscreen{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;
+}
+.loginform{
+  width:100%;max-width:320px;display:flex;flex-direction:column;align-items:center;gap:14px;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:28px 24px;
+}
+.loginform h1{
+  margin:0;font-family:var(--disp);font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  font-size:20px;
+}
+.loginform .field{width:100%;}
+.loginform input{width:100%;}
+.loginform .btn{width:100%;}
+.loginerror{margin:0;font-size:13px;color:var(--red);text-align:center;}
 
 /* ── views ───────────────────────────────────────────────── */
 .view{display:none;padding:18px 0 30px;}
@@ -168,6 +187,7 @@ tr:hover td{background:var(--panel);}
 }
 .rowbtn:hover{color:var(--green);}
 .rowbtn.del:hover{color:var(--red);}
+.byline{font-size:12px;color:var(--muted);}
 .tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:4px 12px 8px;}
 
 /* ── analytics ───────────────────────────────────────────── */

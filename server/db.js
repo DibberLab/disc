@@ -82,12 +82,26 @@ function migrate() {
 /* --------------------------------------------------------------- reads */
 
 /* `since` is an ISO timestamp; omit it for everything. Sessions come back
-   oldest-first, which is the order public/app.js expects. */
-function listSessions(since) {
+   oldest-first, which is the order public/app.js expects. Unscoped by user
+   by default — this is the full-visibility read path everyone gets once
+   logged in, so every row carries who it belongs to. Pass `userId` to scope
+   it to one user (used by /sync, which must only ever hand back the
+   caller's own rows, never someone else's). */
+function listSessions(since, userId) {
   const d = handle();
-  const rows = since
-    ? d.prepare('SELECT * FROM sessions WHERE updated_at > ? ORDER BY date').all(since)
-    : d.prepare('SELECT * FROM sessions ORDER BY date').all();
+  const clauses = [];
+  const params = [];
+  if (since) { clauses.push('s.updated_at > ?'); params.push(since); }
+  if (userId) { clauses.push('s.user_id = ?'); params.push(userId); }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  /* putter_max/driver_max ride along too — the client needs each row's own
+     owner's maxes to compute percentages correctly (History and viewing
+     another user's Analytics), the same reason export.csv needs them. */
+  const rows = d.prepare(
+    `SELECT s.*, u.username, u.putter_max, u.driver_max FROM sessions s
+       JOIN users u ON u.id = s.user_id
+      ${where} ORDER BY s.date`
+  ).all(...params);
   if (!rows.length) return [];
   const ids = rows.map((r) => r.id);
   const sets = d.prepare(
@@ -97,9 +111,11 @@ function listSessions(since) {
   return rowsToSessions(rows, sets);
 }
 
-function getSession(date) {
+/* Ownership-scoped: used by the PUT/GET-by-date paths, which only ever
+   operate on the caller's own day. */
+function getSession(userId, date) {
   const d = handle();
-  const row = d.prepare('SELECT * FROM sessions WHERE date = ?').get(date);
+  const row = d.prepare('SELECT * FROM sessions WHERE user_id = ? AND date = ?').get(userId, date);
   if (!row) return null;
   const sets = d.prepare(
     'SELECT session_id, station, set_index, made FROM session_sets WHERE session_id = ?'
@@ -107,11 +123,21 @@ function getSession(date) {
   return rowsToSessions([row], sets)[0];
 }
 
-function listDeletions(since) {
+/* {id, username, putterMax, driverMax} for every account. Used where a
+   caller needs everyone's per-user maxes at once — e.g. computing CSV
+   percentages correctly across sessions that belong to different people. */
+function listUsers() {
+  return handle().prepare('SELECT id, username, putter_max, driver_max FROM users ORDER BY username').all()
+    .map((r) => ({ id: r.id, username: r.username, putterMax: r.putter_max, driverMax: r.driver_max }));
+}
+
+/* Scoped to the caller — a sync pull should only ever hand back the
+   tombstones for that caller's own outbox, never another user's deletes. */
+function listDeletions(userId, since) {
   const d = handle();
   const rows = since
-    ? d.prepare('SELECT date, deleted_at FROM deletions WHERE deleted_at > ?').all(since)
-    : d.prepare('SELECT date, deleted_at FROM deletions').all();
+    ? d.prepare('SELECT date, deleted_at FROM deletions WHERE user_id = ? AND deleted_at > ?').all(userId, since)
+    : d.prepare('SELECT date, deleted_at FROM deletions WHERE user_id = ?').all(userId);
   return rows.map((r) => ({ date: r.date, deletedAt: r.deleted_at }));
 }
 
@@ -128,15 +154,18 @@ function stats() {
 
 /* -------------------------------------------------------------- writes */
 
-/* Upsert one session. `stampNow: true` (a direct PUT from the UI) makes the
-   server the clock; `false` (a sync push) honours the client's updatedAt,
-   already clamped to <= now by shape.parseSession. Writing a session always
-   clears any tombstone for that date — re-logging a deleted day undeletes it. */
-function upsertSession(session, { stampNow = true } = {}) {
+/* Upsert one session, owned by userId. `stampNow: true` (a direct PUT from
+   the UI) makes the server the clock; `false` (a sync push) honours the
+   client's updatedAt, already clamped to <= now by shape.parseSession.
+   Writing a session always clears any tombstone for that user+date —
+   re-logging a deleted day undeletes it. */
+function upsertSession(userId, session, { stampNow = true } = {}) {
   const d = handle();
   const run = d.transaction((s) => {
     const ts = stampNow || !s.updatedAt ? serverStamp() : s.updatedAt;
-    const existing = d.prepare('SELECT id, created_at FROM sessions WHERE date = ?').get(s.date);
+    const existing = d.prepare(
+      'SELECT id, created_at FROM sessions WHERE user_id = ? AND date = ?'
+    ).get(userId, s.date);
 
     let id;
     if (existing) {
@@ -146,8 +175,8 @@ function upsertSession(session, { stampNow = true } = {}) {
       d.prepare('DELETE FROM session_sets WHERE session_id = ?').run(id);
     } else {
       id = d.prepare(
-        'INSERT INTO sessions (date, notes, updated_at, created_at) VALUES (?, ?, ?, ?)'
-      ).run(s.date, s.notes, ts, ts).lastInsertRowid;
+        'INSERT INTO sessions (user_id, date, notes, updated_at, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(userId, s.date, s.notes, ts, ts).lastInsertRowid;
     }
 
     const ins = d.prepare(
@@ -155,27 +184,27 @@ function upsertSession(session, { stampNow = true } = {}) {
     );
     for (const r of sessionToSetRows(s)) ins.run(id, r.station, r.set_index, r.made);
 
-    d.prepare('DELETE FROM deletions WHERE date = ?').run(s.date);
+    d.prepare('DELETE FROM deletions WHERE user_id = ? AND date = ?').run(userId, s.date);
     return { created: !existing };
   });
 
   const { created } = run(session);
-  return { session: getSession(session.date), created };
+  return { session: getSession(userId, session.date), created };
 }
 
 /* Returns true if a row was actually removed. The tombstone is written
    either way, so deleting a date this server has never seen still
    propagates to a device that does have it. */
-function deleteSession(date, deletedAt) {
+function deleteSession(userId, date, deletedAt) {
   const d = handle();
   const ts = deletedAt || serverStamp();
   return d.transaction(() => {
-    const info = d.prepare('DELETE FROM sessions WHERE date = ?').run(date);
+    const info = d.prepare('DELETE FROM sessions WHERE user_id = ? AND date = ?').run(userId, date);
     d.prepare(
-      `INSERT INTO deletions (date, deleted_at) VALUES (?, ?)
-       ON CONFLICT (date) DO UPDATE SET deleted_at = excluded.deleted_at
+      `INSERT INTO deletions (user_id, date, deleted_at) VALUES (?, ?, ?)
+       ON CONFLICT (user_id, date) DO UPDATE SET deleted_at = excluded.deleted_at
        WHERE excluded.deleted_at > deletions.deleted_at`
-    ).run(date, ts);
+    ).run(userId, date, ts);
     return info.changes > 0;
   })();
 }
@@ -191,34 +220,36 @@ function pruneTombstones() {
 
 /* Last-write-wins, with tombstones beating older writes. See docs/API.md
    for the full statement of the rules — this is the implementation of them.
-   Everything happens in one transaction so a partial push can't land. */
-function applySync({ sessions = [], deletions = [] }) {
+   Everything happens in one transaction so a partial push can't land.
+   Scoped to userId throughout — a sync push can only ever affect the
+   caller's own rows, never another user's. */
+function applySync(userId, { sessions = [], deletions = [] }) {
   const d = handle();
   return d.transaction(() => {
     const result = { upserted: [], deleted: [], skipped: [] };
 
     for (const s of sessions) {
-      const tomb = d.prepare('SELECT deleted_at FROM deletions WHERE date = ?').get(s.date);
+      const tomb = d.prepare('SELECT deleted_at FROM deletions WHERE user_id = ? AND date = ?').get(userId, s.date);
       if (tomb && tomb.deleted_at >= s.updatedAt) {
         result.skipped.push({ date: s.date, reason: 'deleted-on-server' });
         continue;
       }
-      const cur = d.prepare('SELECT updated_at FROM sessions WHERE date = ?').get(s.date);
+      const cur = d.prepare('SELECT updated_at FROM sessions WHERE user_id = ? AND date = ?').get(userId, s.date);
       if (cur && cur.updated_at >= s.updatedAt) {
         result.skipped.push({ date: s.date, reason: 'server-newer' });
         continue;
       }
-      upsertSession(s, { stampNow: false });
+      upsertSession(userId, s, { stampNow: false });
       result.upserted.push(s.date);
     }
 
     for (const del of deletions) {
-      const cur = d.prepare('SELECT updated_at FROM sessions WHERE date = ?').get(del.date);
+      const cur = d.prepare('SELECT updated_at FROM sessions WHERE user_id = ? AND date = ?').get(userId, del.date);
       if (cur && cur.updated_at > del.deletedAt) {
         result.skipped.push({ date: del.date, reason: 'server-newer' });
         continue;
       }
-      deleteSession(del.date, del.deletedAt);
+      deleteSession(userId, del.date, del.deletedAt);
       result.deleted.push(del.date);
     }
 
@@ -228,28 +259,29 @@ function applySync({ sessions = [], deletions = [] }) {
 
 /* -------------------------------------------------------------- import */
 
-/* A restore from a backup file. Each session is a deliberate write, same as
-   a PUT, so it always wins and gets a fresh server stamp — there is no
-   client updatedAt to compare against a device that has been offline for a
-   month. "replace" additionally tombstones every existing session not in
-   the file; "merge" only touches the dates the file mentions. */
-function applyImport(sessions, mode) {
+/* A restore from a backup file, scoped to userId. Each session is a
+   deliberate write, same as a PUT, so it always wins and gets a fresh
+   server stamp — there is no client updatedAt to compare against a device
+   that has been offline for a month. "replace" additionally tombstones
+   every existing session of this user's not in the file (never another
+   user's); "merge" only touches the dates the file mentions. */
+function applyImport(userId, sessions, mode) {
   const d = handle();
   return d.transaction(() => {
     const result = { upserted: [], deleted: [] };
     const incoming = new Set(sessions.map((s) => s.date));
 
     if (mode === 'replace') {
-      const existing = d.prepare('SELECT date FROM sessions').all().map((r) => r.date);
+      const existing = d.prepare('SELECT date FROM sessions WHERE user_id = ?').all(userId).map((r) => r.date);
       for (const date of existing) {
         if (incoming.has(date)) continue;
-        deleteSession(date, serverStamp());
+        deleteSession(userId, date, serverStamp());
         result.deleted.push(date);
       }
     }
 
     for (const s of sessions) {
-      upsertSession(s, { stampNow: true });
+      upsertSession(userId, s, { stampNow: true });
       result.upserted.push(s.date);
     }
 
@@ -259,6 +291,6 @@ function applyImport(sessions, mode) {
 
 module.exports = {
   open, close, handle, migrate, nowIso, serverStamp,
-  listSessions, getSession, listDeletions, stats,
+  listSessions, getSession, listDeletions, listUsers, stats,
   upsertSession, deleteSession, pruneTombstones, applySync, applyImport
 };

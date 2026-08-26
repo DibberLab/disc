@@ -8,12 +8,16 @@ const router = express.Router();
 
 function bad(res, message) { return res.status(400).json({ error: message }); }
 
-/* GET /api/health — also what the Docker healthcheck hits. */
+/* GET /api/health — also what the Docker healthcheck hits. Deliberately not
+   behind requireAuth (see index.js) — the container healthcheck has no
+   session cookie. */
 router.get('/health', (req, res) => {
   res.json({ ok: true, serverTime: db.nowIso(), ...db.stats() });
 });
 
-/* GET /api/sessions[?since=ISO] — oldest first. */
+/* GET /api/sessions[?since=ISO] — oldest first, everyone's, each tagged with
+   userId/username. Full visibility: any logged-in user sees every user's
+   sessions, not just their own. */
 router.get('/sessions', (req, res) => {
   const since = req.query.since;
   if (since !== undefined && isNaN(new Date(since))) return bad(res, 'since must be ISO-8601');
@@ -21,27 +25,31 @@ router.get('/sessions', (req, res) => {
   res.json({ serverTime, sessions: db.listSessions(since) });
 });
 
+/* Scoped to the caller's own date — someone else's session on this date, if
+   any, isn't reachable through this path. */
 router.get('/sessions/:date', (req, res) => {
   if (!isIsoDate(req.params.date)) return bad(res, 'date must be YYYY-MM-DD');
-  const s = db.getSession(req.params.date);
+  const s = db.getSession(req.user.id, req.params.date);
   if (!s) return res.status(404).json({ error: 'no session on that date' });
   res.json(s);
 });
 
-/* PUT /api/sessions/:date — upsert, idempotent. This is the plain
-   "Save session" path: a deliberate write from the UI always wins, and the
-   server stamps updatedAt. Conflict resolution lives in POST /sync, not here. */
+/* PUT /api/sessions/:date — upsert, idempotent, always into the caller's own
+   date-slot (req.user.id, never a URL/body param — no cross-user editing).
+   This is the plain "Save session" path: a deliberate write from the UI
+   always wins, and the server stamps updatedAt. Conflict resolution lives
+   in POST /sync, not here. */
 router.put('/sessions/:date', (req, res, next) => {
   try {
-    const session = parseSession(req.body, req.params.date);
-    const { session: stored, created } = db.upsertSession(session, { stampNow: true });
+    const session = parseSession(req.body, req.params.date, req.user);
+    const { session: stored, created } = db.upsertSession(req.user.id, session, { stampNow: true });
     res.status(created ? 201 : 200).json(stored);
   } catch (err) { next(err); }
 });
 
 router.delete('/sessions/:date', (req, res) => {
   if (!isIsoDate(req.params.date)) return bad(res, 'date must be YYYY-MM-DD');
-  const existed = db.deleteSession(req.params.date, db.nowIso());
+  const existed = db.deleteSession(req.user.id, req.params.date, db.nowIso());
   res.status(existed ? 204 : 404).end();
 });
 
@@ -62,7 +70,7 @@ router.post('/sync', (req, res, next) => {
 
     const incoming = [];
     for (const raw of Array.isArray(body.sessions) ? body.sessions : []) {
-      const s = parseSession(raw, null);
+      const s = parseSession(raw, null, req.user);
       /* An outbox entry without a timestamp can't be ordered against the
          server copy, so treat it as "now" — the client should always send one. */
       if (!s.updatedAt) s.updatedAt = db.nowIso();
@@ -80,15 +88,18 @@ router.post('/sync', (req, res, next) => {
       });
     }
 
-    const applied = db.applySync({ sessions: incoming, deletions });
+    /* Scoped to the caller: sync only ever pushes/pulls the logged-in
+       user's own outbox, never another user's data. Full visibility into
+       everyone else's sessions comes from GET /sessions, not sync. */
+    const applied = db.applySync(req.user.id, { sessions: incoming, deletions });
 
     /* Reply with everything the caller has not seen. Read AFTER applying so
        the client's own writes come back stamped and it can drop its outbox. */
     res.json({
       serverTime,
       applied,
-      sessions: db.listSessions(since || undefined),
-      deletions: db.listDeletions(since || undefined)
+      sessions: db.listSessions(since || undefined, req.user.id),
+      deletions: db.listDeletions(req.user.id, since || undefined)
     });
   } catch (err) { next(err); }
 });
@@ -127,7 +138,10 @@ function pctCell(arr, per) {
 
 router.get('/export.csv', (req, res) => {
   const sessions = db.listSessions();
-  const head = ['Date',
+  /* Putter/driver maxes are per-user now, so the % columns need the maxes
+     of whoever logged each row, not one fixed 20/12 for every session. */
+  const userMaxes = new Map(db.listUsers().map((u) => [u.id, u]));
+  const head = ['Date', 'User',
     '15ft Set 1', '15ft Set 2', '15ft Set 3', '15ft Set 4', '15ft Set 5', '15ft Made', '15ft %',
     '25ft Set 1', '25ft Set 2', '25ft Set 3', '25ft Set 4', '25ft Set 5', '25ft Made', '25ft %',
     'Putts Made', 'Putt %',
@@ -137,15 +151,18 @@ router.get('/export.csv', (req, res) => {
 
   const lines = [head.join(',')];
   for (const s of sessions) {
+    const owner = userMaxes.get(s.userId);
+    const putterMax = owner ? owner.putterMax : 20;
+    const driverMax = owner ? owner.driverMax : 14;
     const putts = s.p15.concat(s.p25);
     const net = s.bh.concat(s.fh);
-    const row = [s.date]
-      .concat(s.p15.map(csvCell), [sum(s.p15), pctCell(s.p15, 20)])
-      .concat(s.p25.map(csvCell), [sum(s.p25), pctCell(s.p25, 20)])
-      .concat([sum(putts), pctCell(putts, 20)])
+    const row = [s.date, s.username]
+      .concat(s.p15.map(csvCell), [sum(s.p15), pctCell(s.p15, putterMax)])
+      .concat(s.p25.map(csvCell), [sum(s.p25), pctCell(s.p25, putterMax)])
+      .concat([sum(putts), pctCell(putts, putterMax)])
       .concat(s.bh.map(csvCell), [sum(s.bh)])
       .concat(s.fh.map(csvCell), [sum(s.fh)])
-      .concat([sum(net), pctCell(net, 12)])
+      .concat([sum(net), pctCell(net, driverMax)])
       .concat(['"' + String(s.notes || '').replace(/"/g, '""') + '"']);
     lines.push(row.join(','));
   }
@@ -171,8 +188,8 @@ router.post('/import', (req, res, next) => {
     }
     if (!Array.isArray(body.sessions)) return bad(res, 'sessions must be an array');
 
-    const sessions = body.sessions.map((raw) => parseSession(raw, null));
-    const applied = db.applyImport(sessions, body.mode);
+    const sessions = body.sessions.map((raw) => parseSession(raw, null, req.user));
+    const applied = db.applyImport(req.user.id, sessions, body.mode);
     res.json({ serverTime: db.nowIso(), applied });
   } catch (err) { next(err); }
 });

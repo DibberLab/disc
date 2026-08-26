@@ -241,3 +241,39 @@ test('a failed sync leaves the outbox entry queued and surfaces the error', asyn
   assert.equal(DGStore.status().pending, 1);
   assert.match(DGStore.status().error, /network down/);
 });
+
+/* ------------------------------------------------------ per-user namespace */
+
+test('configure(username) namespaces the cache so two accounts on one device do not mix', () => {
+  const ls = makeLocalStorage();
+  const { DGStore } = freshStore({ localStorage: ls });
+
+  DGStore.configure('andy');
+  DGStore.write([session('2026-08-01', { notes: "andy's" })]);
+
+  DGStore.configure('riley');
+  assert.equal(DGStore.read().length, 0, "switching users must not see andy's cache");
+  DGStore.write([session('2026-08-01', { notes: "riley's" })]);
+
+  DGStore.configure('andy');
+  assert.equal(DGStore.read()[0].notes, "andy's", "switching back must not see riley's write");
+});
+
+/* ------------------------------------------------------------------ roster */
+
+test('syncRoster caches the full-visibility list separately from the outbox cache', async () => {
+  const everyone = [session('2026-08-10', { notes: 'mine' }), session('2026-08-11', { notes: 'theirs' })];
+  const { DGStore } = freshStore({ fetchImpl: okJson({ serverTime: '2026-08-12T00:00:00.000Z', sessions: everyone }) });
+
+  assert.deepEqual(DGStore.readRoster(), []);
+  const ok = await DGStore.syncRoster();
+  assert.equal(ok, true);
+  assert.equal(DGStore.readRoster().length, 2);
+  assert.equal(DGStore.read().length, 0, 'the roster fetch must not populate the outbox-diffed cache');
+});
+
+test('syncRoster does not touch the network while offline', async () => {
+  const { DGStore } = freshStore({ online: false, fetchImpl: () => { throw new Error('fetch must not be called while offline'); } });
+  const ok = await DGStore.syncRoster();
+  assert.equal(ok, false);
+});

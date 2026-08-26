@@ -25,7 +25,7 @@ Colima, not Docker Desktop — `colima status` before assuming Docker is broken.
 ```bash
 cd ~/dibberlab/disc
 npm install
-npm test                     # 15 tests, all should pass
+npm test                     # ~44 tests, all should pass
 docker compose up --build    # http://localhost:8412
 ```
 
@@ -113,18 +113,20 @@ gitignored `data/`, so backups are on the same droplet as the database — fine
 against an app bug, useless against losing the droplet. Worth pointing at
 Spaces or the repo-backup cron eventually.
 
-## 6. Optional: close the write path
+## 6. Create the first account
 
-The app is open by default. To require a token on every write:
+The whole app requires login now — there's no signup form, so the first
+account has to be created by hand once. `scripts/` isn't copied into the
+image (the Dockerfile only ships `server/` and `public/`), so this runs on
+the **host**, against the bind-mounted data file, not `docker compose exec`:
 
 ```bash
-ssh dibberlab-droplet "openssl rand -hex 24"
-# put it in /var/www/disc/.env as DG_WRITE_TOKEN=...
-ssh dibberlab-droplet "cd /var/www/disc && docker compose up -d"
+ssh dibberlab-droplet "cd /var/www/disc && DB_FILE=./data/disc.sqlite node scripts/create-user.js andy"
 ```
 
-`public/store.js` then has to send `X-DG-Token` on its `fetch` to `/api/sync` —
-that is a two-line change and it is not written yet. Reads stay open either way.
+It prompts for a password (input hidden) and upserts on username, so it's
+also how you reset a forgotten password or add another person later. SQLite's
+WAL mode makes this safe to run while the container is up.
 
 ## Updating later
 
@@ -136,14 +138,13 @@ ssh dibberlab-droplet "cd /var/www/disc && docker compose up -d --build && git a
 
 **`--exclude .env` is not optional.** `.env` only ever exists on the droplet —
 it is gitignored and never in the local tree, so `--delete` without this
-exclude removes it on every single update. If `DG_WRITE_TOKEN` is ever set,
-losing `.env` silently reopens the write path back to no-login on the next
-deploy. If it does go missing, `cp .env.example .env` only restores it to
-defaults — re-set `DG_WRITE_TOKEN` by hand if one was in use.
+exclude removes it on every single update.
 
 Migrations run automatically on boot — `server/db.js` applies any `NNN_*.sql` in
 `server/migrations/` it has not seen and records it in `schema_migrations`. Add
-new files, never edit `001_init.sql` once it has run anywhere real.
+new files, never edit `001_init.sql` once it has run anywhere real. Accounts
+and their password hashes live in the `users` table in the SQLite file itself,
+not in `.env` — losing `.env` no longer has anything to do with login.
 
 ## If it will not start
 

@@ -1,13 +1,29 @@
 # API contract
 
-Base path `/api`. JSON in, JSON out. Single user, no login (see
-`docs/REVIEW.md` §8). All timestamps are ISO-8601 UTC with milliseconds —
-`2026-08-26T14:03:11.212Z` — always that exact width, because the sync rules
-compare them as **strings** and fixed width is what makes `<` chronological.
+Base path `/api`. JSON in, JSON out. Every route requires a logged-in session
+(cookie `dg_session`) except `/api/health` (the Docker healthcheck has no
+cookie) and `/api/login` (how you get one) — see **Auth** below. All
+timestamps are ISO-8601 UTC with milliseconds — `2026-08-26T14:03:11.212Z` —
+always that exact width, because the sync rules compare them as **strings**
+and fixed width is what makes `<` chronological.
+
+## Auth
+
+Username + password, server-side session (table `web_sessions`, not a
+signed/stateless cookie — the cookie is just a high-entropy lookup key, so
+logout is a plain row delete). Accounts are created with
+`scripts/create-user.js`, not a signup endpoint.
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/api/login` | `{username, password}` → `200` + `Set-Cookie` + `{username, putterMax, driverMax}`, or `401`. |
+| `POST` | `/api/logout` | Destroys the session, clears the cookie. `204`. |
+| `GET` | `/api/me` | `{username, putterMax, driverMax}` for the caller, or `401`. |
 
 ## The session shape
 
-Identical to what `public/app.js` has always held in memory, plus `updatedAt`:
+Identical to what `public/app.js` has always held in memory, plus `updatedAt`.
+On a read (`GET`/`sync`/`export`), it also carries who it belongs to:
 
 ```json
 {
@@ -17,36 +33,45 @@ Identical to what `public/app.js` has always held in memory, plus `updatedAt`:
   "bh":  [7, 8, 6, null, 7],
   "fh":  [5, 6, 4, null, 5],
   "notes": "headwind out of the north",
-  "updatedAt": "2026-08-26T14:03:11.212Z"
+  "updatedAt": "2026-08-26T14:03:11.212Z",
+  "userId": 1,
+  "username": "andy",
+  "putterMax": 20,
+  "driverMax": 14
 }
 ```
 
-`null` means that set was not thrown. `0` means it was thrown and nothing went
-in. These are different and the whole percentage model depends on the
-difference. Arrays are always length 5.
+`userId`/`username`/`putterMax`/`driverMax` are read-only — set by the server
+from who's logged in, and ignored if a client sends them on a write. `null`
+means that set was not thrown. `0` means it was thrown and nothing went in.
+These are different and the whole percentage model depends on the difference.
+Arrays are always length 5.
 
-Putting stations (`p15`, `p25`) take 0–20. Net stations (`bh`, `fh`) take 0–12.
-The server **rejects** out-of-range values rather than clamping them — the
-client clamps at the input, so anything out of range on the wire is a bug worth
-seeing.
+Putting stations (`p15`, `p25`) take `0`–`putterMax`. Net stations (`bh`,
+`fh`) take `0`–`driverMax` — per-user settings, not fixed constants (defaults
+20 / 14, see `GET /api/me`). The server **rejects** out-of-range values rather
+than clamping them — the client clamps at the input, so anything out of range
+on the wire is a bug worth seeing.
 
 ## Endpoints
 
+Reads are full-visibility: any logged-in user sees every account's sessions,
+tagged with who they belong to. Writes are always scoped to the caller's own
+account — there is no way to edit or delete someone else's session through
+this API.
+
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/health` | `{ok, serverTime, sessions, sets, deletions, lastUpdatedAt}`. Docker healthcheck hits this. |
-| `GET` | `/api/sessions` | `{serverTime, sessions[]}`, oldest first. |
+| `GET` | `/api/health` | `{ok, serverTime, sessions, sets, deletions, lastUpdatedAt}`. Docker healthcheck hits this, no login required. |
+| `GET` | `/api/sessions` | `{serverTime, sessions[]}`, oldest first, everyone's. |
 | `GET` | `/api/sessions?since=ISO` | Only sessions with `updated_at > since`. |
-| `GET` | `/api/sessions/:date` | One session, or `404`. |
-| `PUT` | `/api/sessions/:date` | Upsert. `201` created, `200` updated, `400` invalid. Path date wins over body date. |
-| `DELETE` | `/api/sessions/:date` | `204` if it existed, `404` if not. Writes a tombstone either way. |
-| `POST` | `/api/sync` | The offline reconciliation endpoint. See below. |
-| `GET` | `/api/export.json` | The same envelope the old "Back up as JSON" button produced, so exports restore in either direction. |
-
-Still to build (`TODO(claude-code)` markers are in the code):
-
-| `GET` | `/api/export.csv` | Column order must match the Session Log tab of the spreadsheet. Lift the list from `#exportCsv` in `public/app.js`; do not reinvent it. |
-| `POST` | `/api/import` | `{sessions[], mode: "merge"｜"replace"}`. Must run every session through `shape.parseSession`. |
+| `GET` | `/api/sessions/:date` | The caller's own session on that date, or `404`. |
+| `PUT` | `/api/sessions/:date` | Upsert into the caller's own date-slot. `201` created, `200` updated, `400` invalid. Path date wins over body date. |
+| `DELETE` | `/api/sessions/:date` | The caller's own session. `204` if it existed, `404` if not. Writes a tombstone either way. |
+| `POST` | `/api/sync` | The offline reconciliation endpoint, scoped to the caller. See below. |
+| `GET` | `/api/export.json` | Everyone's sessions, same envelope the old "Back up as JSON" button produced. |
+| `GET` | `/api/export.csv` | Everyone's sessions, one "User" column added. Column order otherwise matches the Session Log tab of the spreadsheet — mirrors `#exportCsv` in `public/app.js`. |
+| `POST` | `/api/import` | `{sessions[], mode: "merge"｜"replace"}`, scoped to the caller's own account. Every session runs through `shape.parseSession`. |
 
 `PUT` is the plain "Save session" path: a deliberate write from the UI always
 wins and the server stamps `updatedAt`. Conflict resolution lives only in
@@ -121,7 +146,8 @@ again is the fix.
 ## Errors
 
 `400` with `{"error": "..."}` for anything invalid — the message names the
-offending field, e.g. `p15[0] must be between 0 and 20`. `401` if
-`DG_WRITE_TOKEN` is set and `X-DG-Token` is missing or wrong. `429` on more than
-120 writes a minute from one IP. `500` with a generic message; the real error is
-in the container log.
+offending field, e.g. `p15[0] must be between 0 and 20`. `401` if the session
+cookie is missing or invalid (every route except `/api/health` and
+`/api/login`), or if `/api/login` itself gets the wrong username/password.
+`429` on more than 120 writes a minute from one IP. `500` with a generic
+message; the real error is in the container log.

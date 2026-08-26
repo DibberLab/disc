@@ -12,13 +12,32 @@
 </head>
 <body>
 
+<div id="loginScreen" class="loginscreen">
+  <form id="loginForm" class="loginform">
+    <span class="mark" aria-hidden="true"></span>
+    <h1>Training Log</h1>
+    <div class="field">
+      <label for="loginUsername">Username</label>
+      <input id="loginUsername" type="text" autocomplete="username" required>
+    </div>
+    <div class="field">
+      <label for="loginPassword">Password</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn primary">Log in</button>
+    <p id="loginError" class="loginerror" role="alert" hidden></p>
+  </form>
+</div>
+
+<div id="appRoot" hidden>
+
 <header class="topbar">
   <div class="wrap topbar-inner">
     <div class="brand">
       <span class="mark" aria-hidden="true"></span>
       <span>
         <b>Training Log</b>
-        <em>20 putters · 12 mids &amp; drivers</em>
+        <em id="bagCounts">20 putters · 12 mids &amp; drivers</em>
       </span>
     </div>
     <nav class="tabs" role="tablist" aria-label="Sections">
@@ -26,6 +45,10 @@
       <button class="tab" role="tab" aria-selected="false" data-view="history">History</button>
       <button class="tab" role="tab" aria-selected="false" data-view="analytics">Analytics</button>
     </nav>
+    <div class="userbar">
+      <span id="whoAmI"></span>
+      <button id="logoutBtn" class="btn ghost">Log out</button>
+    </div>
   </div>
 </header>
 
@@ -47,17 +70,17 @@
     </div>
 
     <article class="station" data-station="p15">
-      <h2><span class="tag">A</span> Putting · 15 ft <em>5 sets of 20</em></h2>
+      <h2><span class="tag">A</span> Putting · 15 ft <em id="p15Count">5 sets of 20</em></h2>
       <div class="sets" data-grid="p15"></div>
     </article>
 
     <article class="station" data-station="p25">
-      <h2><span class="tag">B</span> Putting · 25 ft <em>5 sets of 20</em></h2>
+      <h2><span class="tag">B</span> Putting · 25 ft <em id="p25Count">5 sets of 20</em></h2>
       <div class="sets" data-grid="p25"></div>
     </article>
 
     <article class="station net">
-      <h2><span class="tag">C</span> Net · 12 mids &amp; drivers <em>discs inside the rectangle</em></h2>
+      <h2><span class="tag">C</span> Net · <span id="netMax">12 mids &amp; drivers</span> <em>discs inside the rectangle</em></h2>
       <div class="netcols">
         <div>
           <h3>Backhand</h3>
@@ -88,6 +111,7 @@
       <button id="exportCsv" class="btn">Download CSV</button>
       <button id="exportJson" class="btn">Back up as JSON</button>
       <button id="importJson" class="btn">Restore a backup</button>
+      <a id="printSheet" class="btn ghost" href="print-sheet.html" target="_blank" rel="noopener">Print blank sheet</a>
       <button id="sample" class="btn ghost">Load sample data</button>
       <button id="wipe" class="btn danger">Delete everything</button>
       <input id="fileInput" type="file" accept="application/json" hidden>
@@ -97,6 +121,10 @@
 
   <!-- ─────────────────────────── ANALYTICS ─────────────────────────── -->
   <section id="view-analytics" class="view">
+    <div class="toolbar">
+      <label for="analyticsUser">Viewing</label>
+      <select id="analyticsUser"></select>
+    </div>
     <div id="analyticsMount"></div>
   </section>
 
@@ -107,8 +135,11 @@
   <p id="storageWarn" class="warn" hidden>This browser is blocking local storage, so sessions will disappear when you close the tab. Download a CSV or JSON before you leave.</p>
 </footer>
 
+</div>
+
 <script src="charts.js"></script>
 <script src="store.js"></script>
+<script src="auth.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

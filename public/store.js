@@ -15,10 +15,26 @@
 (function (global) {
   'use strict';
 
-  var CACHE_KEY  = 'dgTrainingLog.v2';
-  var OUTBOX_KEY = 'dgTrainingLog.outbox.v1';
-  var META_KEY   = 'dgTrainingLog.meta.v1';
-  var LEGACY_KEY = 'dgTrainingLog.v1';        // pre-server single-device data
+  /* Namespaced per logged-in user, so a shared device doesn't mix accounts
+     — configure(username) must run before read()/write()/start(). Until
+     it does, these fall back to the pre-multi-user keys (harmless: nothing
+     calls read/write/start before boot resolves who's logged in). */
+  var namespace = '';
+  var CACHE_KEY, OUTBOX_KEY, META_KEY;
+  function deriveKeys() {
+    var suffix = namespace ? '.' + namespace : '';
+    CACHE_KEY  = 'dgTrainingLog.v2' + suffix;
+    OUTBOX_KEY = 'dgTrainingLog.outbox.v1' + suffix;
+    META_KEY   = 'dgTrainingLog.meta.v1' + suffix;
+  }
+  deriveKeys();
+  function configure(username) {
+    namespace = username || '';
+    deriveKeys();
+    lastSeen = null;   // force read() to re-snapshot from the newly-namespaced cache
+  }
+
+  var LEGACY_KEY = 'dgTrainingLog.v1';        // pre-server single-device data, pre-dates namespacing
 
   var STATIONS = { p15: 5, p25: 5, bh: 5, fh: 5 };
   var API = '/api';
@@ -204,6 +220,37 @@
     return true;
   }
 
+  /* --------------------------------------------------------- roster
+     Full-visibility read: everyone's sessions, tagged with userId/username.
+     Deliberately kept OUT of the outbox/diff machinery above — read() and
+     write() represent only the logged-in user's own sessions, the ones
+     that flow through sync(). This is a separate, read-only, non-diffed
+     cache: nothing here ever gets queued or pushed. Not namespaced per
+     viewer — the same "everyone" data applies regardless of who's asking. */
+  var ALL_KEY = 'dgTrainingLog.all.v1';
+  var rosterListeners = [];
+  function onRosterChange(fn) { rosterListeners.push(fn); }
+  function notifyRoster() {
+    rosterListeners.forEach(function (fn) { try { fn(); } catch (e) { console.error(e); } });
+  }
+
+  function readRoster() { return lsGet(ALL_KEY, []); }
+
+  function syncRoster() {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve(false);
+    return fetch(API + '/sessions').then(function (res) {
+      if (!res.ok) throw new Error('roster fetch failed: HTTP ' + res.status);
+      return res.json();
+    }).then(function (data) {
+      lsSet(ALL_KEY, data.sessions || []);
+      notifyRoster();
+      return true;
+    }).catch(function (err) {
+      console.warn('[store] roster: ' + (err.message || err));
+      return false;
+    });
+  }
+
   /* ------------------------------------------------------------- sync */
   function scheduleFlush(delay) {
     if (flushTimer) clearTimeout(flushTimer);
@@ -257,6 +304,7 @@
       lastError = null;
       emit();
       if (touched) notify();
+      syncRoster();   // opportunistic: we just proved the network is up
       return true;
     }).catch(function (err) {
       lastError = err.message || String(err);
@@ -304,6 +352,7 @@
     migrateLegacy();
     read();
     sync();
+    syncRoster();
 
     global.addEventListener('online', function () { scheduleFlush(0); });
     global.addEventListener('offline', emit);
@@ -313,12 +362,16 @@
   }
 
   global.DGStore = {
+    configure: configure,
     read: read,
     write: write,
     sync: sync,
     status: status,
     onChange: onChange,
     onStatus: onStatus,
+    readRoster: readRoster,
+    syncRoster: syncRoster,
+    onRosterChange: onRosterChange,
     start: start,
     _internals: { outbox: outbox, meta: meta, fingerprint: fingerprint, applyRemote: applyRemote }
   };

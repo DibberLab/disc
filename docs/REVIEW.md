@@ -55,10 +55,16 @@ the app was already careful about this. The schema keeps it: a skipped set has
 **no row** in `session_sets`; a set thrown and missed entirely is a row with
 `made = 0`. Do not "simplify" that to a nullable column with zeros.
 
-**6. Station definitions live in three places** — `GRIDS` in `public/app.js`,
-`STATIONS` in `server/config.js`, and the `CHECK` constraint in
-`001_init.sql`. Changing a max or a set count means changing all three in one
-commit. There is a comment saying so in `config.js`.
+**6. Station definitions used to live in three places** — `GRIDS` in
+`public/app.js`, `STATIONS` in `server/config.js`, and the `CHECK` constraint
+in `001_init.sql`. That was true for the set count (`sets: 5`, still shared
+between the first two) but not any more for the max: putter/driver counts
+became per-user data in `002_users_and_ownership.sql` (`users.putter_max`/
+`driver_max`), the SQL `CHECK` was loosened to a generous sanity backstop, and
+the real cap is enforced once, in `server/shape.js`'s `maxesForUser()`.
+Changing the *set count* still means changing `config.js` and `app.js`'s
+`GRIDS` together; changing someone's max is just an update to their `users`
+row.
 
 ## Analytics nits
 
@@ -72,11 +78,14 @@ all five sets were thrown.
 This app went from "a file on your phone" to "a URL anyone can find," which
 changes the threat model even though nothing about the code got less safe.
 
-**8. There is no login.** Per the decision made up front, `disc.dibberlab.me`
-is open: anyone who finds it can add, edit, or wipe sessions. Two things are
-in place for that — `DG_WRITE_TOKEN` (wired up, off by default; set it and every
-write needs the header) and `scripts/backup.sh` (nightly, keeps 14). If the URL
-ever gets shared or indexed, turn the token on. See `docs/DEPLOY.md`.
+**8. Login landed.** The original decision was no login at all — that changed
+once more than one person started using the app: `disc.dibberlab.me` now sits
+entirely behind username/password (server-side session, scrypt-hashed
+passwords, accounts created with `scripts/create-user.js`, no signup form).
+`DG_WRITE_TOKEN`, the old blunt shared-secret stopgap, is gone — superseded,
+not layered underneath. `scripts/backup.sh` (nightly, keeps 14) is still the
+safety net against an app bug or a fat-fingered wipe. See `docs/API.md` for
+the auth contract and `docs/DEPLOY.md` for creating the first account.
 
 **9. Notes are stored raw and escaped at render time.** That is correct — but it
 means the server must never template a note into HTML. Keep notes flowing

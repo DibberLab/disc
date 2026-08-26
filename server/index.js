@@ -4,12 +4,13 @@ const path = require('path');
 const express = require('express');
 
 const db = require('./db');
+const auth = require('./auth');
 const api = require('./routes/sessions');
+const authRoutes = require('./routes/auth');
 const { ValidationError } = require('./shape');
 
 const PORT = Number(process.env.PORT || 8080);
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'disc.sqlite');
-const WRITE_TOKEN = process.env.DG_WRITE_TOKEN || '';
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 db.open(DB_FILE);
@@ -20,22 +21,33 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);            // nginx sits in front; needed for real client IPs
 app.use(express.json({ limit: '512kb' }));
 
-/* --- write protection -----------------------------------------------------
-   Off unless DG_WRITE_TOKEN is set. disc.dibberlab.me is a public URL with no
-   login, so until this is switched on anyone who finds it can overwrite or
-   wipe the log. The nightly backup in scripts/backup.sh is the safety net;
-   setting the token is the actual fix. See docs/DEPLOY.md.                  */
-const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-
-app.use('/api', (req, res, next) => {
-  if (!WRITE_TOKEN || !MUTATING.has(req.method)) return next();
-  if (req.get('X-DG-Token') === WRITE_TOKEN) return next();
-  res.status(401).json({ error: 'write token required' });
+/* --- auth -------------------------------------------------------------
+   attachUser reads the session cookie (if any) and sets req.user; it never
+   blocks. requireAuth is the actual gate, applied to every /api route
+   except the two that have to work without a session: /health (the Docker
+   healthcheck has no cookie) and /login (how you get a cookie). This is a
+   real security control, unlike the rate limiter below — it replaces the
+   old DG_WRITE_TOKEN shared-secret scheme entirely now that writes need a
+   real user_id to attribute to, not just a yes/no gate. */
+app.use((req, res, next) => {
+  req.user = auth.getSession(auth.tokenFromRequest(req));
+  next();
 });
 
+const OPEN_PATHS = new Set(['/api/health', '/api/login', '/api/logout']);
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/') || OPEN_PATHS.has(req.path)) return next();
+  if (!req.user) return res.status(401).json({ error: 'login required' });
+  next();
+});
+
+app.use('/api', authRoutes);
+
 /* --- crude write rate limit -----------------------------------------------
-   One process, one user, no Redis. Enough to stop a scraper hammering the
-   write path; not a security control.                                       */
+   One process, a handful of users, no Redis. Enough to stop a scraper
+   hammering the write path; not a security control.                        */
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const hits = new Map();
 const WINDOW_MS = 60_000;
 const MAX_WRITES = 120;

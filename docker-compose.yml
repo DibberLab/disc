@@ -12,7 +12,6 @@ services:
       - ./data:/data
     environment:
       DB_FILE: /data/disc.sqlite
-      DG_WRITE_TOKEN: ${DG_WRITE_TOKEN:-}
       TZ: America/Chicago
     logging:
       driver: json-file
