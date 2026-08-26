@@ -12,8 +12,28 @@
 (function () {
   'use strict';
 
-  var GRIDS, PUTTER_MAX, DRIVER_MAX;
+  /* GRIDS is the Log tab's CURRENT form — what's actually rendered right
+     now. It starts equal to PROFILE_LIMITS (the account's own settings) but
+     gets swapped, via setFormLimits(), to whatever session is being edited:
+     each session locks in the putter/driver max and set count that were
+     true when it was first logged (see 004_per_session_limits.sql
+     server-side), so editing an old day has to render and validate against
+     THAT day's numbers, not today's account defaults. PROFILE_LIMITS itself
+     never changes without a page reload (see the Settings panel in auth.js,
+     which reloads on save). */
+  var GRIDS, PROFILE_LIMITS;
   var C = { p15: '#3fbd97', p25: '#e0a244', bh: '#5aa9e6', fh: '#d2634f' };
+
+  /* {putterMax, driverMax, putterSets, driverSets} -> the server's
+     {p15,p25,bh,fh} each {max, sets} shape — same structure
+     config.limitsFor builds server-side, kept independently since this is
+     the only file on the client that needs it. */
+  function limitsShape(putterMax, driverMax, putterSets, driverSets) {
+    return {
+      p15: { max: putterMax, sets: putterSets }, p25: { max: putterMax, sets: putterSets },
+      bh: { max: driverMax, sets: driverSets }, fh: { max: driverMax, sets: driverSets }
+    };
+  }
 
   /* ------------------------------------------------------------ storage
      Backed by store.js (loaded first). localStorage is still what the UI
@@ -73,8 +93,8 @@
      shape.js) carries its owner's putterMax/driverMax; a session still only
      in the form, not yet saved, doesn't, and falls back to the logged-in
      user's own current maxes — correct because only I can be editing it. */
-  function pMax(s) { return s.putterMax != null ? s.putterMax : PUTTER_MAX; }
-  function dMax(s) { return s.driverMax != null ? s.driverMax : DRIVER_MAX; }
+  function pMax(s) { return s.putterMax != null ? s.putterMax : PROFILE_LIMITS.p15.max; }
+  function dMax(s) { return s.driverMax != null ? s.driverMax : PROFILE_LIMITS.bh.max; }
   function putts(s) { return s.p15.concat(s.p25); }
   function netAll(s) { return s.bh.concat(s.fh); }
   function puttPct(s) { return rate(putts(s), pMax(s)); }
@@ -102,6 +122,19 @@
     mount.innerHTML = html;
   }
 
+  /* Swaps what the Log tab's grid renders and validates against, then
+     rebuilds every station's DOM to match. `limits` is the
+     {p15,p25,bh,fh}-each-{max,sets} shape from limitsShape(). Called with
+     PROFILE_LIMITS for a blank/new entry, or a specific session's own
+     locked-in numbers when editing an existing one — see fillForm(). */
+  function setFormLimits(limits) {
+    Object.keys(GRIDS).forEach(function (key) {
+      GRIDS[key].max = limits[key].max;
+      GRIDS[key].count = limits[key].sets;
+    });
+    Object.keys(GRIDS).forEach(buildGrid);
+  }
+
   function readForm() {
     var s = { date: $('#date').value, p15: [], p25: [], bh: [], fh: [], notes: $('#notes').value.trim() };
     Object.keys(GRIDS).forEach(function (key) {
@@ -113,7 +146,13 @@
     return s;
   }
 
+  /* `s` null/undefined means a blank new entry — grid resets to the
+     account's current defaults. An existing session (from History's Edit
+     button) rebuilds the grid to THAT DAY's own locked-in max/set count
+     first — editing a day from before a settings change must show and
+     enforce what was true then, not today's defaults. */
   function fillForm(s) {
+    setFormLimits(s ? limitsShape(pMax(s), dMax(s), s.p15.length, s.bh.length) : PROFILE_LIMITS);
     $('#date').value = s ? s.date : today();
     $('#notes').value = s ? (s.notes || '') : '';
     Object.keys(GRIDS).forEach(function (key) {
@@ -130,8 +169,8 @@
     $$('input[data-key]').forEach(function (inp) {
       $('[data-cell="' + inp.id + '"]').classList.toggle('filled', inp.value !== '');
     });
-    var pm = sum(putts(s)), pt = thrown(putts(s), PUTTER_MAX);
-    var nm = sum(netAll(s)), nt = thrown(netAll(s), DRIVER_MAX);
+    var pm = sum(putts(s)), pt = thrown(putts(s), GRIDS.p15.max);
+    var nm = sum(netAll(s)), nt = thrown(netAll(s), GRIDS.bh.max);
     $('#liveP').innerHTML = pm + '<i>/' + pt + '</i>';
     $('#liveN').innerHTML = nm + '<i>/' + nt + '</i>';
     $('#livePpct').textContent = pt ? pct(pm / pt) : '—';
@@ -372,9 +411,11 @@
 
   $('#sample').addEventListener('click', function () {
     if (sessions.length && !confirm('This adds 21 made-up sessions on top of what you have. Continue?')) return;
-    /* Scaled to this account's own putter/driver maxes, not the original
-       20/12 the sample data was tuned for. */
-    var pr = PUTTER_MAX / 20, dr = DRIVER_MAX / 14;
+    /* Scaled to this account's own current putter/driver maxes and set
+       counts, not the original 20/12/5 the sample data was tuned for. */
+    var pMx = PROFILE_LIMITS.p15.max, dMx = PROFILE_LIMITS.bh.max;
+    var pSets = PROFILE_LIMITS.p15.sets, dSets = PROFILE_LIMITS.bh.sets;
+    var pr = pMx / 20, dr = dMx / 14;
     var out = [], base = new Date();
     for (var d = 27; d >= 0; d--) {
       if (d % 4 === 2) continue;                       // rest days
@@ -383,10 +424,10 @@
       var prog = (28 - d) / 28;
       out.push({
         date: iso,
-        p15: mk(5, (13 + prog * 3) * pr, 1.6 * pr, PUTTER_MAX),
-        p25: mk(5, (8 + prog * 3) * pr, 1.8 * pr, PUTTER_MAX),
-        bh: mk(5, (6 + prog * 2) * dr, 1.3 * dr, DRIVER_MAX),
-        fh: mk(5, (4 + prog * 2.5) * dr, 1.4 * dr, DRIVER_MAX),
+        p15: mk(pSets, (13 + prog * 3) * pr, 1.6 * pr, pMx),
+        p25: mk(pSets, (8 + prog * 3) * pr, 1.8 * pr, pMx),
+        bh: mk(dSets, (6 + prog * 2) * dr, 1.3 * dr, dMx),
+        fh: mk(dSets, (4 + prog * 2.5) * dr, 1.4 * dr, dMx),
         notes: ''
       });
     }
@@ -436,9 +477,24 @@
     return t === 0 ? null : made / t;
   }
 
-  function setAverages(list, key) {
+  /* Sessions in `list` can have different set counts (each locks in its
+     own — see 004_per_session_limits.sql), so the number of bars is however
+     many the longest one needs; a shorter session just doesn't contribute
+     to the later ones. */
+  function maxSetCount(list, key) {
+    return list.reduce(function (m, s) { return Math.max(m, s[key].length); }, 1);
+  }
+
+  function numberedLabels(prefix, n) {
     var out = [];
-    for (var i = 0; i < 5; i++) {
+    for (var i = 1; i <= n; i++) out.push(prefix + ' ' + i);
+    return out;
+  }
+
+  function setAverages(list, key) {
+    var n = maxSetCount(list, key);
+    var out = [];
+    for (var i = 0; i < n; i++) {
       var vals = list.map(function (s) { return s[key][i]; }).filter(function (v) { return v !== null && v !== undefined; });
       out.push(vals.length ? vals.reduce(function (a, b) { return a + b; }, 0) / vals.length : null);
     }
@@ -543,8 +599,8 @@
       card('Putts thrown', totalPutts.toLocaleString(), madePutts.toLocaleString() + ' made all time') +
       card('15 ft · last 10', pct(last15), d15.text || ('all time ' + pct(all15)), d15.cls) +
       card('25 ft · last 10', pct(last25), d25.text || ('all time ' + pct(all25)), d25.cls) +
-      card('Best 15 ft day', best15 + '<span style="font-size:16px;color:var(--muted)">/' + (5 * pm) + '</span>', 'personal best') +
-      card('Best 25 ft day', best25 + '<span style="font-size:16px;color:var(--muted)">/' + (5 * pm) + '</span>', 'personal best') +
+      card('Best 15 ft day', best15 + '<span style="font-size:16px;color:var(--muted)">/' + (list[list.length - 1].p15.length * pm) + '</span>', 'personal best') +
+      card('Best 25 ft day', best25 + '<span style="font-size:16px;color:var(--muted)">/' + (list[list.length - 1].p25.length * pm) + '</span>', 'personal best') +
       card('Net · BH vs FH', pct(poolRate(list, 'bh')) + ' / ' + pct(poolRate(list, 'fh')), 'all-time hit rate') +
       '</div>';
 
@@ -582,7 +638,7 @@
     });
 
     Charts.bars($('#chart-fatigue'), {
-      categories: ['Set 1', 'Set 2', 'Set 3', 'Set 4', 'Set 5'],
+      categories: numberedLabels('Set', maxSetCount(list, 'p15')),
       yMax: pm, yTicks: 4, valueLabels: true,
       fmtV: function (v) { return v.toFixed(1); },
       series: [
@@ -603,7 +659,7 @@
     });
 
     Charts.bars($('#chart-netround'), {
-      categories: ['Rd 1', 'Rd 2', 'Rd 3', 'Rd 4', 'Rd 5'],
+      categories: numberedLabels('Rd', maxSetCount(list, 'bh')),
       yMax: dm, yTicks: 4, valueLabels: true,
       fmtV: function (v) { return v.toFixed(1); },
       series: [
@@ -613,7 +669,7 @@
       height: 240
     });
 
-    renderHeat(list, pm, dm);
+    renderHeat(list, pm, dm, list[list.length - 1].p15.length, list[list.length - 1].bh.length);
   }
 
   function panel(id, title, sub, legendHtml) {
@@ -621,10 +677,10 @@
       (legendHtml || '') + '<div id="chart-' + id + '"></div></div>';
   }
 
-  function renderHeat(list, pm, dm) {
+  function renderHeat(list, pm, dm, pSets, dSets) {
     var byDate = {};
     list.forEach(function (s) { byDate[s.date] = discsThrown(s); });
-    var dayMax = 10 * (pm + dm);   // 5+5 sets of putters, 5+5 sets of drivers
+    var dayMax = 2 * pSets * pm + 2 * dSets * dm;   // p15+p25 sets of putters, bh+fh sets of drivers
     var t1 = Math.round(dayMax * 0.3125), t2 = Math.round(dayMax * 0.6875);
     var end = new Date(today() + 'T12:00:00');
     end.setDate(end.getDate() + (6 - end.getDay()));      // finish the current week
@@ -676,25 +732,26 @@
 
   /* --------------------------------------------------------------- boot
      Held back by auth.js until a session is confirmed — see DGAuth.boot()
-     at the bottom of this file. `me` is {username, putterMax, driverMax}. */
+     at the bottom of this file. `me` is {username, putterMax, driverMax,
+     putterSets, driverSets}. */
   function boot(me) {
     DGStore.configure(me.username);   // must happen before any Store.read()/write()/start()
 
-    PUTTER_MAX = me.putterMax;
-    DRIVER_MAX = me.driverMax;
+    PROFILE_LIMITS = limitsShape(me.putterMax, me.driverMax, me.putterSets, me.driverSets);
     GRIDS = {
-      p15: { label: 'Set', max: PUTTER_MAX, count: 5 },
-      p25: { label: 'Set', max: PUTTER_MAX, count: 5 },
-      bh:  { label: 'Rd',  max: DRIVER_MAX, count: 5 },
-      fh:  { label: 'Rd',  max: DRIVER_MAX, count: 5 }
+      p15: { label: 'Set', max: 0, count: 0 },
+      p25: { label: 'Set', max: 0, count: 0 },
+      bh:  { label: 'Rd',  max: 0, count: 0 },
+      fh:  { label: 'Rd',  max: 0, count: 0 }
     };
-    Object.keys(GRIDS).forEach(buildGrid);
+    // buildGrid() for each station happens inside fillForm(null) below, via setFormLimits.
 
-    $('#bagCounts').textContent = PUTTER_MAX + ' putters · ' + DRIVER_MAX + ' mids & drivers';
-    $('#p15Count').textContent = '5 sets of ' + PUTTER_MAX;
-    $('#p25Count').textContent = '5 sets of ' + PUTTER_MAX;
-    $('#netMax').textContent = DRIVER_MAX + ' mids & drivers';
-    $('#printSheet').href = 'print-sheet.html?p=' + PUTTER_MAX + '&d=' + DRIVER_MAX;
+    $('#bagCounts').textContent = me.putterMax + ' putters · ' + me.driverMax + ' mids & drivers';
+    $('#p15Count').textContent = me.putterSets + ' sets of ' + me.putterMax;
+    $('#p25Count').textContent = me.putterSets + ' sets of ' + me.putterMax;
+    $('#netMax').textContent = me.driverMax + ' mids & drivers';
+    $('#printSheet').href = 'print-sheet.html?p=' + me.putterMax + '&d=' + me.driverMax +
+      '&ps=' + me.putterSets + '&ds=' + me.driverSets;
 
     sessions = Store.read();
     sortSessions();

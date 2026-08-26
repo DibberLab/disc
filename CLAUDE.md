@@ -1,11 +1,14 @@
 # disc — a shared disc golf training log
 
-Training tracker, now multi-user: putters at 15 ft and 25 ft (five sets each),
-plus mids and drivers at the net backhand and forehand (five rounds each). How
-many discs are in a set is a per-user setting (`users.putter_max`/
-`driver_max`, defaults 20 putters / 14 drivers), not a fixed constant — see
-"Decisions already made" below. Runs at **disc.dibberlab.me** on the dibberlab
-droplet.
+Training tracker, multi-user: putters at 15 ft and 25 ft, plus mids and
+drivers at the net backhand and forehand. Both how many discs are in a set
+(`putterMax`/`driverMax`) and how many sets get thrown (`putterSets`/
+`driverSets`, defaults 20/14 discs, 5/5 sets) are adjustable per-account
+settings — editable from the app's Settings panel, not fixed constants. Each
+SESSION locks in the numbers that were true when it was first logged, though,
+so changing your settings later never rewrites a past day's percentages —
+see "Decisions already made" below. Runs at **disc.dibberlab.me** on the
+dibberlab droplet.
 
 It started as a single-file browser app storing everything in `localStorage`.
 This repo is that app with a real database behind it, and an offline layer so it
@@ -23,19 +26,19 @@ server/
   auth.js              password hashing (scrypt), session cookie CRUD
   db.js               SQLite: migrations, reads, writes, the sync merge
   shape.js            validation + DB rows <-> wire shape
-  config.js           station set-counts + STATION_CATEGORY (putter/driver) + maxesForUser()
-  routes/sessions.js  the REST surface, scoped by req.user
-  routes/auth.js       /login /logout /me
+  config.js           STATION_CATEGORY (putter/driver) + limitsForUser/limitsFromSnapshot/snapshotForUser
+  routes/sessions.js  the REST surface, scoped by req.user, per-session snapshot resolution
+  routes/auth.js       /login /logout /me (GET+PATCH) /register
   migrations/         NNN_*.sql, applied on boot, recorded in schema_migrations
 public/
-  index.html  styles.css  charts.js   carried over, index.html gained a login screen
-  app.js                              storage seam swapped, gated behind DGAuth.boot()
-  auth.js                              NEW: login gate, talks to /api/login /logout /me /register
+  index.html  styles.css  charts.js   carried over, index.html gained a login screen + settings panel
+  app.js                              storage seam swapped, gated behind DGAuth.boot(), dynamic grid limits
+  auth.js                              NEW: login gate + settings/add-account panels, talks to the auth API
   store.js                            NEW: localStorage cache + outbox + sync, per-user namespaced
-  print-sheet.html                    printable version, maxes read from ?p=&d= query params
+  print-sheet.html                    printable version, maxes/sets read from ?p=&d=&ps=&ds= query params
 scripts/create-user.js  create/reset-password/rename/set-display-name for an account
 test/                db.test.js, auth.test.js, auth-client.test.js: schema, ownership, sync,
-                      login-form wiring; store.test.js: client cache
+                      login-form + settings-panel wiring; store.test.js: client cache
 deploy/               nginx site config
 scripts/backup.sh     nightly SQLite backup
 legacy/               the original single-file app, tarball, and spreadsheet
@@ -61,8 +64,12 @@ the local outbox and the server. The whole thing is held behind a login gate:
 everyone's (mine, live, plus `DGStore.readRoster()` for everyone else) used
 only by History and Analytics — never fed back through `Store.write()`. The
 form, the charts, the core analytics math are otherwise the original code,
-just re-parametrized on per-session `putterMax`/`driverMax` instead of a
-literal 20/12.
+just re-parametrized on per-session `putterMax`/`driverMax`/`putterSets`/
+`driverSets` instead of a literal 20/12/5. `app.js`'s `GRIDS` is no longer a
+boot-time constant either — `setFormLimits()` rebuilds it (and the Log tab's
+actual input grid) to match whichever session is being edited, since an old
+session's own locked-in numbers can differ from the account's current
+settings. See the guardrail below before touching any of that.
 
 ## Decisions already made, do not relitigate
 
@@ -85,11 +92,18 @@ literal 20/12.
   can create, edit, or delete a session that isn't their own — ownership is
   always taken from the session cookie server-side, never from the request
   body. Reads require login too — there's no anonymous view of the data.
-- **Putter/driver counts are per-user data, not a constant.** `users
-  .putter_max`/`driver_max`, defaults 20 / 14, changed by editing that user's
-  row (no settings UI yet — see Build order). `sets: 5` per station is still
-  a fixed constant, shared between `config.js` and `GRIDS[key].count` in
-  `app.js`.
+- **Putter/driver max AND set count are per-user settings, editable from the
+  app** (the Settings panel, `PATCH /api/me`) — defaults 20/14 discs, 5/5
+  sets. **Each session locks in the numbers that were true when it was first
+  created** (`sessions.putter_max`/`driver_max`/`putter_sets`/`driver_sets`,
+  a snapshot — see `004_per_session_limits.sql`), and editing that session
+  later validates against and preserves ITS OWN snapshot, never the account's
+  current settings. This was a deliberate call (asked directly, not
+  assumed): a day you only had 16 drivers must stay `/16` forever, even after
+  you change your default to 20. `server/routes/sessions.js`'s
+  `resolveLimitsAndSnapshot()` is the one place that decides "new session,
+  snapshot current settings" vs. "existing session, use its own" — every
+  write path (`PUT`, `/sync`, `/import`) goes through it.
 - **SQLite, not Postgres.** A handful of users, a few thousand rows a decade.
   A file on a volume with a nightly backup is the right size of thing.
 - **`better-sqlite3`, not `node:sqlite`.** The built-in is still flagged
@@ -134,14 +148,17 @@ literal 20/12.
   inspect the page" (a mobile browser with no devtools). `DGAuth.boot(fn)` is
   now just "run fn once authenticated," decoupled from whether the login
   screen itself works. Don't reintroduce that coupling.
-- **Set counts must agree** between `GRIDS[key].count` in `public/app.js` and
-  `STATIONS[key].sets` in `server/config.js`. Change the number of sets in
-  both or the client and server disagree about array length. The **max**
-  (discs per set) is no longer a copy anywhere — it's per-user data
-  (`users.putter_max`/`driver_max`), resolved through `config.maxesForUser()`
-  and enforced in `shape.js`. `session_sets`' `CHECK` constraint only enforces
-  a generous sanity bound (`0`–`200`) now, not the real cap — SQL can't
-  reference the `users` table.
+- **Neither set count nor max is a fixed copy anywhere any more** — both are
+  per-session data (see the settings/snapshot bullet above), resolved through
+  `config.limitsForUser()`/`limitsFromSnapshot()` and enforced in `shape.js`.
+  `public/app.js`'s `GRIDS` is a runtime mirror of whichever session is
+  currently being edited, rebuilt by `setFormLimits()` — it is never a
+  build-time constant to keep in sync with the server. `STATIONS` in
+  `server/config.js` is only the last-resort fallback for a caller with no
+  user/session context (an unauthenticated request, or a test). The `CHECK`
+  constraints on `session_sets.set_index` and `.made` are generous sanity
+  bounds (0–49, 0–200), not the real cap — SQL can't reference another row's
+  data, so the real cap only ever lives in `shape.js`.
 - **`disc.dibberlab.me` is proxied through Cloudflare**, which overrides
   `public/`'s origin `Cache-Control: public, max-age=300` with its own
   4-hour edge cache for static files (`index.html` is `no-cache` and stays
@@ -168,7 +185,7 @@ literal 20/12.
 
 ```bash
 npm install
-npm test                            # node --test, ~44 tests across test/*.test.js
+npm test                            # node --test, ~75 tests across test/*.test.js
 npm run dev                         # node --watch, port 8080
 docker compose up --build           # localhost:8412
 node scripts/create-user.js andy    # create or reset a login account

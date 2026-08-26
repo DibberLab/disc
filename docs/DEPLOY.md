@@ -25,7 +25,7 @@ Colima, not Docker Desktop — `colima status` before assuming Docker is broken.
 ```bash
 cd ~/dibberlab/disc
 npm install
-npm test                     # ~62 tests, all should pass
+npm test                     # ~75 tests, all should pass
 docker compose up --build    # http://localhost:8412
 ```
 

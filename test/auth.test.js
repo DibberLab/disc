@@ -42,6 +42,8 @@ test('createSession/getSession/destroySession round-trip', () => {
   assert.equal(session.displayName, 'sessiontest', 'no display name set falls back to the username');
   assert.equal(session.putterMax, 20);
   assert.equal(session.driverMax, 14);
+  assert.equal(session.putterSets, 5);
+  assert.equal(session.driverSets, 5);
 
   auth.destroySession(token);
   assert.equal(auth.getSession(token), null);
@@ -93,4 +95,57 @@ test('createUser refuses an invalid username', () => {
   assert.throws(() => auth.createUser('', 'a-fine-password'), ValidationError);
   assert.throws(() => auth.createUser('has a space', 'a-fine-password'), ValidationError);
   assert.throws(() => auth.createUser(undefined, 'a-fine-password'), ValidationError);
+});
+
+/* ---------------------------------------------------------- updateUserSettings */
+
+test('updateUserSettings changes only the fields given', () => {
+  const userId = auth.createUser('settingstest', 'a-fine-password');
+  const updated = auth.updateUserSettings(userId, { driverMax: 18 });
+  assert.equal(updated.driver_max, 18);
+  assert.equal(updated.putter_max, 20, 'putterMax was not in the patch, must be unchanged');
+  assert.equal(updated.putter_sets, 5);
+  assert.equal(updated.driver_sets, 5);
+});
+
+test('updateUserSettings can change all four fields at once', () => {
+  const userId = auth.createUser('settingstest2', 'a-fine-password');
+  const updated = auth.updateUserSettings(userId, { putterMax: 16, driverMax: 12, putterSets: 4, driverSets: 6 });
+  assert.equal(updated.putter_max, 16);
+  assert.equal(updated.driver_max, 12);
+  assert.equal(updated.putter_sets, 4);
+  assert.equal(updated.driver_sets, 6);
+});
+
+test('updateUserSettings refuses out-of-range values', () => {
+  const userId = auth.createUser('settingstest3', 'a-fine-password');
+  assert.throws(() => auth.updateUserSettings(userId, { putterMax: 0 }), ValidationError);
+  assert.throws(() => auth.updateUserSettings(userId, { putterMax: 201 }), ValidationError);
+  assert.throws(() => auth.updateUserSettings(userId, { putterSets: 0 }), ValidationError);
+  assert.throws(() => auth.updateUserSettings(userId, { putterSets: 51 }), ValidationError);
+  assert.throws(() => auth.updateUserSettings(userId, { driverMax: 1.5 }), ValidationError);
+  assert.throws(() => auth.updateUserSettings(userId, { driverMax: 'lots' }), ValidationError);
+});
+
+test('updateUserSettings refuses an empty patch', () => {
+  const userId = auth.createUser('settingstest4', 'a-fine-password');
+  assert.throws(() => auth.updateUserSettings(userId, {}), ValidationError);
+});
+
+test('updateUserSettings never touches an existing session\'s own locked-in snapshot', () => {
+  const { parseSession } = require('../server/shape');
+  const { limitsForUser, snapshotForUser } = require('../server/config');
+
+  const userId = auth.createUser('settingstest5', 'a-fine-password');
+  const user = { putterMax: 20, driverMax: 14, putterSets: 5, driverSets: 5 };
+  const s = parseSession({
+    date: '2026-08-05', p15: [1, null, null, null, null],
+    p25: [], bh: [], fh: [], notes: ''
+  }, null, limitsForUser(user));
+  db.upsertSession(userId, s, { snapshot: snapshotForUser(user) });
+
+  auth.updateUserSettings(userId, { putterMax: 30 });
+
+  const stored = db.getSession(userId, '2026-08-05');
+  assert.equal(stored.putterMax, 20, 'changing the account default must not rewrite an existing session');
 });

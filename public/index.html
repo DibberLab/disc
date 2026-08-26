@@ -47,6 +47,7 @@
     </nav>
     <div class="userbar">
       <span id="whoAmI"></span>
+      <button id="settingsBtn" class="btn ghost">Settings</button>
       <button id="addAccountBtn" class="btn ghost">Add account</button>
       <button id="logoutBtn" class="btn ghost">Log out</button>
     </div>
@@ -54,6 +55,31 @@
 </header>
 
 <div class="wrap">
+  <form id="settingsForm" class="sessionbar addaccount" hidden>
+    <p class="datenote" style="flex-basis:100%;margin:0 0 -4px">Applies to sessions logged from now on — anything you've already saved keeps the numbers it was logged with.</p>
+    <div class="field">
+      <label for="setPutterMax">Putters</label>
+      <input id="setPutterMax" type="number" inputmode="numeric" min="1" max="200" required>
+    </div>
+    <div class="field">
+      <label for="setPutterSets">Putting sets</label>
+      <input id="setPutterSets" type="number" inputmode="numeric" min="1" max="50" required>
+    </div>
+    <div class="field">
+      <label for="setDriverMax">Mids &amp; drivers</label>
+      <input id="setDriverMax" type="number" inputmode="numeric" min="1" max="200" required>
+    </div>
+    <div class="field">
+      <label for="setDriverSets">Net rounds</label>
+      <input id="setDriverSets" type="number" inputmode="numeric" min="1" max="50" required>
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn primary">Save settings</button>
+      <button type="button" id="cancelSettings" class="btn ghost">Cancel</button>
+    </div>
+    <span id="settingsNote" class="savenote" role="status"></span>
+  </form>
+
   <form id="addAccountForm" class="sessionbar addaccount" hidden>
     <div class="field">
       <label for="newUsername">New username</label>

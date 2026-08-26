@@ -58,7 +58,15 @@ function freshAuth({ fetchImpl } = {}) {
     cancelAddAccount: makeEl(),
     newUsername: makeEl(),
     newDisplayName: makeEl(),
-    newPassword: makeEl()
+    newPassword: makeEl(),
+    settingsBtn: makeEl(),
+    settingsForm: makeEl({ hidden: true }),
+    settingsNote: makeEl(),
+    cancelSettings: makeEl(),
+    setPutterMax: makeEl(),
+    setPutterSets: makeEl(),
+    setDriverMax: makeEl(),
+    setDriverSets: makeEl()
   };
   const selectorMap = {
     '#loginScreen': el.loginScreen,
@@ -76,7 +84,15 @@ function freshAuth({ fetchImpl } = {}) {
     '#cancelAddAccount': el.cancelAddAccount,
     '#newUsername': el.newUsername,
     '#newDisplayName': el.newDisplayName,
-    '#newPassword': el.newPassword
+    '#newPassword': el.newPassword,
+    '#settingsBtn': el.settingsBtn,
+    '#settingsForm': el.settingsForm,
+    '#settingsNote': el.settingsNote,
+    '#cancelSettings': el.cancelSettings,
+    '#setPutterMax': el.setPutterMax,
+    '#setPutterSets': el.setPutterSets,
+    '#setDriverMax': el.setDriverMax,
+    '#setDriverSets': el.setDriverSets
   };
 
   // Real form.reset() clears its descendant fields too — the stub form
@@ -89,6 +105,7 @@ function freshAuth({ fetchImpl } = {}) {
   };
 
   const alerts = [];
+  const location = { reloaded: false, reload() { this.reloaded = true; } };
   const sandbox = {
     document: {
       querySelector(sel) {
@@ -98,14 +115,14 @@ function freshAuth({ fetchImpl } = {}) {
     },
     fetch: fetchImpl || (() => Promise.reject(new Error('fetch not configured for this test'))),
     addEventListener() {},   // window.addEventListener('error', ...)
-    location: { reload() {} },
+    location: location,
     alert(msg) { alerts.push(msg); },
     console
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(SOURCE, sandbox, { filename: 'auth.js' });
-  return { DGAuth: sandbox.DGAuth, el: el, alerts: alerts };
+  return { DGAuth: sandbox.DGAuth, el: el, alerts: alerts, location: location };
 }
 
 function okJson(body, status) {
@@ -257,10 +274,13 @@ test('DGAuth.me() reflects the logged-in user after a successful login', async (
 
 async function loggedIn(fetchExtra) {
   const fetchImpl = (url, opts) => {
-    if (url === '/api/me') {
+    // Only the plain boot-time GET is auto-handled — a PATCH (or anything
+    // else) to the same URL falls through to fetchExtra, so tests can mock
+    // POST /api/register or PATCH /api/me without this swallowing them.
+    if (url === '/api/me' && (!opts || !opts.method)) {
       return Promise.resolve({
         ok: true, status: 200,
-        json: () => Promise.resolve({ username: 'andy', displayName: 'Andy', putterMax: 20, driverMax: 14 })
+        json: () => Promise.resolve({ username: 'andy', displayName: 'Andy', putterMax: 20, driverMax: 14, putterSets: 5, driverSets: 5 })
       });
     }
     if (fetchExtra) { const r = fetchExtra(url, opts); if (r) return r; }
@@ -339,4 +359,61 @@ test('a taken username shows the server error inline and leaves the panel open',
   assert.equal(el.addAccountNote.textContent, 'that username is already taken');
   assert.equal(el.addAccountForm.hidden, false, 'a failed create must not close the panel');
   assert.equal(alerts.length, 0);
+});
+
+/* --------------------------------------------------------------- settings */
+
+test('opening Settings pre-fills the current putter/driver max and set counts', async () => {
+  const { el } = await loggedIn();
+  el.settingsBtn.trigger('click');
+  assert.equal(el.settingsForm.hidden, false);
+  assert.equal(el.setPutterMax.value, 20);
+  assert.equal(el.setPutterSets.value, 5);
+  assert.equal(el.setDriverMax.value, 14);
+  assert.equal(el.setDriverSets.value, 5);
+});
+
+test('cancel closes the settings panel', async () => {
+  const { el } = await loggedIn();
+  el.settingsBtn.trigger('click');
+  el.cancelSettings.trigger('click');
+  assert.equal(el.settingsForm.hidden, true);
+});
+
+test('saving settings PATCHes /api/me with all four fields and reloads on success', async () => {
+  let patchBody = null;
+  const { el, location } = await loggedIn((url, opts) => {
+    if (url === '/api/me' && opts && opts.method === 'PATCH') {
+      patchBody = JSON.parse(opts.body);
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    }
+  });
+
+  el.settingsBtn.trigger('click');
+  el.setPutterMax.value = '24';
+  el.setPutterSets.value = '6';
+  el.setDriverMax.value = '16';
+  el.setDriverSets.value = '4';
+  el.settingsForm.trigger('submit');
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+
+  assert.deepEqual(patchBody, { putterMax: 24, putterSets: 6, driverMax: 16, driverSets: 4 });
+  assert.equal(location.reloaded, true, 'a successful save must reload so the new limits take effect');
+});
+
+test('a rejected settings save shows the error inline and does not reload', async () => {
+  const { el, location } = await loggedIn((url, opts) => {
+    if (url === '/api/me' && opts && opts.method === 'PATCH') {
+      return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: 'putter max must be an integer between 1 and 200' }) });
+    }
+  });
+
+  el.settingsBtn.trigger('click');
+  el.settingsForm.trigger('submit');
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(el.settingsNote.textContent, 'putter max must be an integer between 1 and 200');
+  assert.equal(location.reloaded, false);
 });

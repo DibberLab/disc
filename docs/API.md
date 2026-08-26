@@ -19,10 +19,11 @@ first account gets created (and the only way to reset a password today).
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/login` | `{username, password}` → `200` + `Set-Cookie` + `{username, displayName, putterMax, driverMax}`, or `401`. |
+| `POST` | `/api/login` | `{username, password}` → `200` + `Set-Cookie` + `{username, displayName, putterMax, driverMax, putterSets, driverSets}`, or `401`. |
 | `POST` | `/api/logout` | Destroys the session, clears the cookie. `204`. |
-| `GET` | `/api/me` | `{username, displayName, putterMax, driverMax}` for the caller, or `401`. |
-| `POST` | `/api/register` | **Requires login.** `{username, password, displayName?}` → `201` + `{username}`. New account gets default maxes (20/14). `400` on a taken username, an invalid one (2-32 chars, letters/numbers/`-`/`_`), or a password under 8 characters. |
+| `GET` | `/api/me` | `{username, displayName, putterMax, driverMax, putterSets, driverSets}` for the caller, or `401`. |
+| `PATCH` | `/api/me` | **Requires login.** `{putterMax?, driverMax?, putterSets?, driverSets?}`, any subset → `200` + the updated fields. Each an integer, max 1-200, sets 1-50. Changes the account's going-forward default only — see below. |
+| `POST` | `/api/register` | **Requires login.** `{username, password, displayName?}` → `201` + `{username}`. New account gets default maxes (20/14) and set counts (5/5). `400` on a taken username, an invalid one (2-32 chars, letters/numbers/`-`/`_`), or a password under 8 characters. |
 
 ## The session shape
 
@@ -42,24 +43,34 @@ On a read (`GET`/`sync`/`export`), it also carries who it belongs to:
   "username": "amcmorrow",
   "displayName": "Andy",
   "putterMax": 20,
-  "driverMax": 14
+  "driverMax": 14,
+  "putterSets": 5,
+  "driverSets": 5
 }
 ```
 
-`userId`/`username`/`displayName`/`putterMax`/`driverMax` are read-only — set
-by the server from who's logged in, and ignored if a client sends them on a
-write. `username` is the stable identity (login, ownership); `displayName`
-is purely cosmetic (falls back to `username` when unset — see
-`003_display_name.sql`) and is what the UI actually shows in History,
-Analytics, and the topbar. `null` means that set was not thrown. `0` means
-it was thrown and nothing went in. These are different and the whole
-percentage model depends on the difference. Arrays are always length 5.
+`userId`/`username`/`displayName`/`putterMax`/`driverMax`/`putterSets`/
+`driverSets` are read-only — set by the server, and ignored if a client sends
+them on a write. `username` is the stable identity (login, ownership);
+`displayName` is purely cosmetic (falls back to `username` when unset — see
+`003_display_name.sql`). `null` means that set was not thrown. `0` means it
+was thrown and nothing went in. These are different and the whole percentage
+model depends on the difference. `p15`/`p25` are always the same length as
+each other (`putterSets`); `bh`/`fh` are always the same length as each other
+(`driverSets`) — but that length can differ session to session.
 
-Putting stations (`p15`, `p25`) take `0`–`putterMax`. Net stations (`bh`,
-`fh`) take `0`–`driverMax` — per-user settings, not fixed constants (defaults
-20 / 14, see `GET /api/me`). The server **rejects** out-of-range values rather
-than clamping them — the client clamps at the input, so anything out of range
-on the wire is a bug worth seeing.
+**Putter/driver max and set count are locked in per session, at creation —
+see `004_per_session_limits.sql`.** `p15`/`p25` take `0`–`putterMax` and are
+exactly `putterSets` long; `bh`/`fh` take `0`–`driverMax` and are exactly
+`driverSets` long — all four of a specific SESSION's own numbers, not
+whatever the account's settings currently say. Creating a brand-new session
+(a date with no existing row for that user) snapshots the account's CURRENT
+settings (`GET /api/me`) onto it. Editing an existing session validates
+against and never changes that session's own already-locked-in numbers, even
+if `PATCH /api/me` has changed the account's settings since — a day you only
+had 16 drivers stays `/16` forever. The server **rejects** out-of-range
+values rather than clamping them — the client clamps at the input, so
+anything out of range on the wire is a bug worth seeing.
 
 ## Endpoints
 
@@ -78,7 +89,7 @@ this API.
 | `DELETE` | `/api/sessions/:date` | The caller's own session. `204` if it existed, `404` if not. Writes a tombstone either way. |
 | `POST` | `/api/sync` | The offline reconciliation endpoint, scoped to the caller. See below. |
 | `GET` | `/api/export.json` | Everyone's sessions, same envelope the old "Back up as JSON" button produced. |
-| `GET` | `/api/export.csv` | Everyone's sessions, one "User" column added. Column order otherwise matches the Session Log tab of the spreadsheet — mirrors `#exportCsv` in `public/app.js`. |
+| `GET` | `/api/export.csv` | Everyone's sessions, one "User" column added. Set columns (`15ft Set N`, `BH Rd N`, ...) are sized to the widest `putterSets`/`driverSets` seen across every exported session — a session with fewer sets just gets blank cells. Percentages use each row's own `putterMax`/`driverMax`. Column order otherwise matches the Session Log tab of the spreadsheet — mirrors `#exportCsv` in `public/app.js`. |
 | `POST` | `/api/import` | `{sessions[], mode: "merge"｜"replace"}`, scoped to the caller's own account. Every session runs through `shape.parseSession`. |
 
 `PUT` is the plain "Save session" path: a deliberate write from the UI always

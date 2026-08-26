@@ -37,7 +37,9 @@ router.post('/login', (req, res) => {
     username: user.username,
     displayName: user.display_name || user.username,
     putterMax: user.putter_max,
-    driverMax: user.driver_max
+    driverMax: user.driver_max,
+    putterSets: user.putter_sets,
+    driverSets: user.driver_sets
   });
 });
 
@@ -55,8 +57,29 @@ router.get('/me', (req, res) => {
     username: req.user.username,
     displayName: req.user.displayName,
     putterMax: req.user.putterMax,
-    driverMax: req.user.driverMax
+    driverMax: req.user.driverMax,
+    putterSets: req.user.putterSets,
+    driverSets: req.user.driverSets
   });
+});
+
+/* Updates the caller's own settings — putter/driver max and set count.
+   {putterMax?, driverMax?, putterSets?, driverSets?}, any subset. Only
+   changes the account's going-forward default; every existing session kept
+   its own locked-in numbers from when it was logged (004_per_session_limits
+   .sql) and is untouched by this. */
+router.patch('/me', (req, res, next) => {
+  try {
+    const updated = auth.updateUserSettings(req.user.id, req.body || {});
+    res.json({
+      username: updated.username,
+      displayName: updated.display_name || updated.username,
+      putterMax: updated.putter_max,
+      driverMax: updated.driver_max,
+      putterSets: updated.putter_sets,
+      driverSets: updated.driver_sets
+    });
+  } catch (err) { next(err); }
 });
 
 /* Creates a new account. Deliberately NOT in index.js's OPEN_PATHS, so

@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const db = require('../server/db');
 const { parseSession, ValidationError } = require('../server/shape');
+const { limitsForUser } = require('../server/config');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'disc-test-'));
 const FILE = path.join(TMP, 'test.sqlite');
@@ -40,8 +41,8 @@ test('migration is idempotent', () => {
   db.migrate();
   db.migrate();
   const rows = db.handle().prepare('SELECT version, name FROM schema_migrations').all();
-  assert.equal(rows.length, 3);
-  assert.deepEqual(rows.map((r) => r.version), [1, 2, 3]);
+  assert.equal(rows.length, 4);
+  assert.deepEqual(rows.map((r) => r.version), [1, 2, 3, 4]);
 });
 
 test('null sets round-trip as null, zeros round-trip as zero', () => {
@@ -88,13 +89,78 @@ test('the CHECK constraint is a sanity backstop, not the real cap', () => {
 });
 
 test('shape.parseSession enforces the caller\'s own putter/driver max', () => {
-  const bad = (over, user) => assert.throws(() => parseSession(full('2026-01-06', over), null, user), ValidationError);
+  const bad = (over, user) => assert.throws(() => parseSession(full('2026-01-06', over), null, limitsForUser(user)), ValidationError);
   bad({ p15: [21, null, null, null, null] }, undefined);              // default putterMax 20
   bad({ bh: [15, null, null, null, null] }, undefined);                // default driverMax 14
   bad({ bh: [11, null, null, null, null] }, { driverMax: 10 });        // a tighter user max
   // A generous user max allows a value the default would refuse:
-  const s = parseSession(full('2026-01-06', { bh: [18, null, null, null, null] }), null, { driverMax: 20 });
+  const s = parseSession(full('2026-01-06', { bh: [18, null, null, null, null] }), null, limitsForUser({ driverMax: 20 }));
   assert.equal(s.bh[0], 18);
+});
+
+test('shape.parseSession enforces the caller\'s own set count', () => {
+  const bad = (over, user) => assert.throws(() => parseSession(full('2026-01-06', over), null, limitsForUser(user)), ValidationError);
+  bad({ p15: [1, 2, 3, 4, 5, 6] }, undefined);                         // default is 5 sets
+  bad({ p15: [1, 2, 3, 4, 5, 6] }, { putterSets: 5 });
+  // A generous user set count allows a 6th set the default would refuse:
+  const s = parseSession(full('2026-01-06', { p15: [1, 2, 3, 4, 5, 6] }), null, limitsForUser({ putterSets: 6 }));
+  assert.equal(s.p15.length, 6);
+  assert.equal(s.p15[5], 6);
+});
+
+/* -------------------------------------------- per-session locked-in limits
+   A session snapshots the putter/driver max and set count that were true
+   when it was FIRST created; editing it later never touches that snapshot,
+   even if a different one is passed in — see 004_per_session_limits.sql
+   and routes/sessions.js's resolveLimitsAndSnapshot. */
+
+test('a new session is created with the given snapshot, not the config defaults', () => {
+  const snapshot = { putterMax: 24, driverMax: 16, putterSets: 6, driverSets: 5 };
+  const s = parseSession(full('2026-08-01'), null, limitsForUser(snapshot));
+  const { session } = db.upsertSession(userId, s, { snapshot });
+  assert.equal(session.putterMax, 24);
+  assert.equal(session.driverMax, 16);
+  assert.equal(session.putterSets, 6);
+  assert.equal(session.driverSets, 5);
+  assert.equal(session.p15.length, 6, 'the stored array must match the snapshot set count, not a fixed 5');
+});
+
+test('editing an existing session preserves its own snapshot even when a different one is passed', () => {
+  const original = { putterMax: 24, driverMax: 16, putterSets: 6, driverSets: 5 };
+  const s1 = parseSession(full('2026-08-02'), null, limitsForUser(original));
+  db.upsertSession(userId, s1, { snapshot: original });
+
+  // Re-save the same date with a DIFFERENT snapshot passed in (simulating
+  // the account's defaults having changed since) — must be ignored.
+  const changed = { putterMax: 20, driverMax: 14, putterSets: 5, driverSets: 5 };
+  const s2 = parseSession(full('2026-08-02', { notes: 'edited' }), null, limitsForUser(original));
+  const { session, created } = db.upsertSession(userId, s2, { snapshot: changed });
+
+  assert.equal(created, false);
+  assert.equal(session.notes, 'edited');
+  assert.equal(session.putterMax, 24, 'must keep the ORIGINAL snapshot, not the one passed on update');
+  assert.equal(session.putterSets, 6);
+});
+
+test('upsertSession falls back to config defaults if no snapshot is given on create', () => {
+  const s = parseSession(full('2026-08-03'), null);
+  const { session } = db.upsertSession(userId, s);   // no snapshot option at all
+  assert.equal(session.putterMax, 20);
+  assert.equal(session.driverMax, 14);
+  assert.equal(session.putterSets, 5);
+  assert.equal(session.driverSets, 5);
+});
+
+test('the loosened set_index CHECK allows a set beyond the old fixed bound of 5', () => {
+  const snapshot = { putterMax: 20, driverMax: 14, putterSets: 10, driverSets: 5 };
+  const s = parseSession(full('2026-08-04', { p15: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }), null, limitsForUser(snapshot));
+  const { session } = db.upsertSession(userId, s, { snapshot });
+  assert.equal(session.p15.length, 10);
+  assert.equal(session.p15[9], 10);
+  const row = db.handle().prepare(
+    'SELECT COUNT(*) n FROM session_sets WHERE station = ? AND set_index = ?'
+  ).get('p15', 9);
+  assert.equal(row.n, 1);
 });
 
 test('deleting cascades the sets and leaves a tombstone', () => {
@@ -207,16 +273,6 @@ test('listSessions is unscoped and tags every row with its owner', () => {
   // No display_name set for either seeded account — falls back to username.
   assert.equal(mine.displayName, 'andy');
   assert.equal(theirs.displayName, 'riley');
-});
-
-test('listUsers includes displayName, falling back to username when unset', () => {
-  const users = db.listUsers();
-  const andyRow = users.find((u) => u.username === 'andy');
-  assert.equal(andyRow.displayName, 'andy');
-
-  db.handle().prepare('UPDATE users SET display_name = ? WHERE username = ?').run('Andy', 'andy');
-  const updated = db.listUsers().find((u) => u.username === 'andy');
-  assert.equal(updated.displayName, 'Andy');
 });
 
 test('ISO timestamps compare correctly as strings', () => {

@@ -55,6 +55,65 @@
       fetch('/api/logout', { method: 'POST' }).then(function () { global.location.reload(); });
     });
     wireAddAccount();
+    wireSettings();
+  }
+
+  /* Putter/driver max and set count — was a fixed constant, now an editable
+     per-account default (see 004_per_session_limits.sql). Reloads the page
+     on save rather than trying to live-rebuild the Log tab's grid mid-edit:
+     simpler, and settings changes are rare enough that a reload costs
+     nothing. Every session already logged keeps its own locked-in numbers
+     regardless — this only changes what NEW sessions snapshot. */
+  function wireSettings() {
+    var btn = $('#settingsBtn');
+    var form = $('#settingsForm');
+    var note = $('#settingsNote');
+
+    btn.addEventListener('click', function () {
+      if (form.hidden) {
+        var m = me;
+        $('#setPutterMax').value = m.putterMax;
+        $('#setPutterSets').value = m.putterSets;
+        $('#setDriverMax').value = m.driverMax;
+        $('#setDriverSets').value = m.driverSets;
+      }
+      form.hidden = !form.hidden;
+      note.textContent = '';
+    });
+
+    $('#cancelSettings').addEventListener('click', function () {
+      form.hidden = true;
+      note.textContent = '';
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var patch = {
+        putterMax: parseInt($('#setPutterMax').value, 10),
+        putterSets: parseInt($('#setPutterSets').value, 10),
+        driverMax: parseInt($('#setDriverMax').value, 10),
+        driverSets: parseInt($('#setDriverSets').value, 10)
+      };
+      note.textContent = 'Saving…';
+      note.className = 'savenote';
+      fetch('/api/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      }).then(function (res) {
+        return res.json().then(function (body) { return { ok: res.ok, body: body }; });
+      }).then(function (r) {
+        if (!r.ok) {
+          note.textContent = r.body.error || 'Could not save those settings.';
+          note.className = 'savenote bad';
+          return;
+        }
+        global.location.reload();
+      }).catch(function () {
+        note.textContent = "Couldn't reach the server. Check the connection and try again.";
+        note.className = 'savenote bad';
+      });
+    });
   }
 
   /* Only reachable once logged in — the button/panel live inside #appRoot,

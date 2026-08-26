@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const db = require('./db');
 const { ValidationError } = require('./shape');
+const { MIN_MAX, MAX_MAX, MIN_SETS, MAX_SETS } = require('./config');
 
 const USERNAME_RE = /^[a-zA-Z0-9_-]{2,32}$/;
 const MIN_PASSWORD_LEN = 8;
@@ -53,7 +54,8 @@ function getSession(token) {
   if (!token) return null;
   const d = db.handle();
   const row = d.prepare(
-    `SELECT w.token, u.id AS user_id, u.username, u.display_name, u.putter_max, u.driver_max
+    `SELECT w.token, u.id AS user_id, u.username, u.display_name,
+            u.putter_max, u.driver_max, u.putter_sets, u.driver_sets
        FROM web_sessions w JOIN users u ON u.id = w.user_id
       WHERE w.token = ?`
   ).get(token);
@@ -64,7 +66,9 @@ function getSession(token) {
     username: row.username,
     displayName: row.display_name || row.username,
     putterMax: row.putter_max,
-    driverMax: row.driver_max
+    driverMax: row.driver_max,
+    putterSets: row.putter_sets,
+    driverSets: row.driver_sets
   };
 }
 
@@ -75,7 +79,9 @@ function destroySession(token) {
 
 function findUserByUsername(username) {
   return db.handle().prepare(
-    'SELECT id, username, display_name, password_hash, putter_max, driver_max FROM users WHERE username = ?'
+    `SELECT id, username, display_name, password_hash,
+            putter_max, driver_max, putter_sets, driver_sets
+       FROM users WHERE username = ?`
   ).get(username);
 }
 
@@ -104,6 +110,40 @@ function createUser(username, password, displayName) {
   return info.lastInsertRowid;
 }
 
+/* Updates the caller's OWN putter/driver max and set count — the settings
+   screen. Only touches fields actually present in `patch`; omitted fields
+   are left as they are. This changes the account's going-forward DEFAULT
+   only — it never rewrites any existing session's own locked-in snapshot
+   (see 004_per_session_limits.sql and routes/sessions.js), so past days
+   stay correct. Returns the updated row. */
+const SETTINGS_FIELDS = {
+  putterMax: { column: 'putter_max', min: MIN_MAX, max: MAX_MAX, label: 'putter max' },
+  driverMax: { column: 'driver_max', min: MIN_MAX, max: MAX_MAX, label: 'driver max' },
+  putterSets: { column: 'putter_sets', min: MIN_SETS, max: MAX_SETS, label: 'putter sets' },
+  driverSets: { column: 'driver_sets', min: MIN_SETS, max: MAX_SETS, label: 'driver sets' }
+};
+
+function updateUserSettings(userId, patch) {
+  const sets = [];
+  const params = [];
+  for (const key of Object.keys(SETTINGS_FIELDS)) {
+    if (!(key in patch)) continue;
+    const { column, min, max, label } = SETTINGS_FIELDS[key];
+    const v = patch[key];
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) {
+      throw new ValidationError(`${label} must be an integer between ${min} and ${max}`);
+    }
+    sets.push(`${column} = ?`);
+    params.push(v);
+  }
+  if (!sets.length) throw new ValidationError('nothing to update');
+  params.push(userId);
+  db.handle().prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  return db.handle().prepare(
+    'SELECT username, display_name, putter_max, driver_max, putter_sets, driver_sets FROM users WHERE id = ?'
+  ).get(userId);
+}
+
 /* ---------------------------------------------------------------- cookie
    No cookie-parser dependency — the app only ever sets/reads this one
    cookie, so a tiny hand-rolled parse is less than pulling in a package. */
@@ -123,6 +163,6 @@ function tokenFromRequest(req) {
 module.exports = {
   hashPassword, verifyPassword,
   createSession, getSession, destroySession,
-  findUserByUsername, createUser,
+  findUserByUsername, createUser, updateUserSettings,
   COOKIE_NAME, tokenFromRequest
 };

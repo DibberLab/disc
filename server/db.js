@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const { TOMBSTONE_TTL_DAYS } = require('./config');
+const { TOMBSTONE_TTL_DAYS, snapshotForUser } = require('./config');
 const { rowsToSessions, sessionToSetRows } = require('./shape');
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
@@ -94,11 +94,14 @@ function listSessions(since, userId) {
   if (since) { clauses.push('s.updated_at > ?'); params.push(since); }
   if (userId) { clauses.push('s.user_id = ?'); params.push(userId); }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  /* putter_max/driver_max ride along too — the client needs each row's own
-     owner's maxes to compute percentages correctly (History and viewing
-     another user's Analytics), the same reason export.csv needs them. */
+  /* Deliberately NOT joining u.putter_max/u.driver_max/u.putter_sets/
+     u.driver_sets here — s.* already carries the session's OWN locked-in
+     snapshot of those (see 004_per_session_limits.sql), which is what the
+     client needs for correct percentages/grid sizing on a row that might be
+     from years ago, under a since-changed account default. Only username/
+     display_name genuinely come from the live account. */
   const rows = d.prepare(
-    `SELECT s.*, u.username, u.display_name, u.putter_max, u.driver_max FROM sessions s
+    `SELECT s.*, u.username, u.display_name FROM sessions s
        JOIN users u ON u.id = s.user_id
       ${where} ORDER BY s.date`
   ).all(...params);
@@ -121,17 +124,6 @@ function getSession(userId, date) {
     'SELECT session_id, station, set_index, made FROM session_sets WHERE session_id = ?'
   ).all(row.id);
   return rowsToSessions([row], sets)[0];
-}
-
-/* {id, username, displayName, putterMax, driverMax} for every account. Used
-   where a caller needs everyone's per-user maxes at once — e.g. computing
-   CSV percentages correctly across sessions that belong to different people. */
-function listUsers() {
-  return handle().prepare('SELECT id, username, display_name, putter_max, driver_max FROM users ORDER BY username').all()
-    .map((r) => ({
-      id: r.id, username: r.username, displayName: r.display_name || r.username,
-      putterMax: r.putter_max, driverMax: r.driver_max
-    }));
 }
 
 /* Scoped to the caller — a sync pull should only ever hand back the
@@ -161,8 +153,16 @@ function stats() {
    the UI) makes the server the clock; `false` (a sync push) honours the
    client's updatedAt, already clamped to <= now by shape.parseSession.
    Writing a session always clears any tombstone for that user+date —
-   re-logging a deleted day undeletes it. */
-function upsertSession(userId, session, { stampNow = true } = {}) {
+   re-logging a deleted day undeletes it.
+
+   `snapshot` ({putterMax, driverMax, putterSets, driverSets}) is written
+   ONLY on the INSERT branch — an existing session's own locked-in numbers
+   from when it was first created are never touched by a later edit, even if
+   the account's current settings have since changed (falls back to
+   snapshotForUser(undefined)'s constants if the caller forgot to pass one,
+   which should never happen in practice — every route resolves this before
+   calling in). */
+function upsertSession(userId, session, { stampNow = true, snapshot } = {}) {
   const d = handle();
   const run = d.transaction((s) => {
     const ts = stampNow || !s.updatedAt ? serverStamp() : s.updatedAt;
@@ -177,9 +177,13 @@ function upsertSession(userId, session, { stampNow = true } = {}) {
       id = existing.id;
       d.prepare('DELETE FROM session_sets WHERE session_id = ?').run(id);
     } else {
+      const snap = snapshot || snapshotForUser(undefined);
       id = d.prepare(
-        'INSERT INTO sessions (user_id, date, notes, updated_at, created_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(userId, s.date, s.notes, ts, ts).lastInsertRowid;
+        `INSERT INTO sessions
+           (user_id, date, notes, updated_at, created_at, putter_max, driver_max, putter_sets, driver_sets)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(userId, s.date, s.notes, ts, ts, snap.putterMax, snap.driverMax, snap.putterSets, snap.driverSets)
+        .lastInsertRowid;
     }
 
     const ins = d.prepare(
@@ -225,8 +229,15 @@ function pruneTombstones() {
    for the full statement of the rules — this is the implementation of them.
    Everything happens in one transaction so a partial push can't land.
    Scoped to userId throughout — a sync push can only ever affect the
-   caller's own rows, never another user's. */
-function applySync(userId, { sessions = [], deletions = [] }) {
+   caller's own rows, never another user's.
+
+   `snapshots` is {date: {putterMax, driverMax, putterSets, driverSets}},
+   pre-resolved by the caller (routes/sessions.js) for whichever incoming
+   dates don't already have a session — see resolveLimitsAndSnapshot there.
+   A date with no entry (because a session already existed for it when the
+   caller checked) just falls through to upsertSession's existing-row branch,
+   which ignores `snapshot` entirely. */
+function applySync(userId, { sessions = [], deletions = [], snapshots = {} }) {
   const d = handle();
   return d.transaction(() => {
     const result = { upserted: [], deleted: [], skipped: [] };
@@ -242,7 +253,7 @@ function applySync(userId, { sessions = [], deletions = [] }) {
         result.skipped.push({ date: s.date, reason: 'server-newer' });
         continue;
       }
-      upsertSession(userId, s, { stampNow: false });
+      upsertSession(userId, s, { stampNow: false, snapshot: snapshots[s.date] });
       result.upserted.push(s.date);
     }
 
@@ -268,7 +279,7 @@ function applySync(userId, { sessions = [], deletions = [] }) {
    that has been offline for a month. "replace" additionally tombstones
    every existing session of this user's not in the file (never another
    user's); "merge" only touches the dates the file mentions. */
-function applyImport(userId, sessions, mode) {
+function applyImport(userId, sessions, mode, snapshots = {}) {
   const d = handle();
   return d.transaction(() => {
     const result = { upserted: [], deleted: [] };
@@ -284,7 +295,7 @@ function applyImport(userId, sessions, mode) {
     }
 
     for (const s of sessions) {
-      upsertSession(userId, s, { stampNow: true });
+      upsertSession(userId, s, { stampNow: true, snapshot: snapshots[s.date] });
       result.upserted.push(s.date);
     }
 
@@ -294,6 +305,6 @@ function applyImport(userId, sessions, mode) {
 
 module.exports = {
   open, close, handle, migrate, nowIso, serverStamp,
-  listSessions, getSession, listDeletions, listUsers, stats,
+  listSessions, getSession, listDeletions, stats,
   upsertSession, deleteSession, pruneTombstones, applySync, applyImport
 };

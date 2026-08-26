@@ -235,8 +235,14 @@ function clampCount(v, fallback){
   const n = parseInt(v, 10);
   return Number.isInteger(n) && n >= 1 && n <= 200 ? n : fallback;
 }
-const P = clampCount(searchParams.get('p'), 20);   // putters
-const D = clampCount(searchParams.get('d'), 14);   // mids & drivers
+const P = clampCount(searchParams.get('p'), 20);    // putters
+const D = clampCount(searchParams.get('d'), 14);    // mids & drivers
+function clampSets(v, fallback){
+  const n = parseInt(v, 10);
+  return Number.isInteger(n) && n >= 1 && n <= 50 ? n : fallback;
+}
+const PS = clampSets(searchParams.get('ps'), 5);    // putting sets
+const DS = clampSets(searchParams.get('ds'), 5);    // net rounds
 
 function strip(n, shade){
   let cells = '';
@@ -246,7 +252,7 @@ function strip(n, shade){
 
 function puttStation(tag, name, meta){
   let rows = '';
-  for(let s=1;s<=5;s++){
+  for(let s=1;s<=PS;s++){
     rows += '<tr>'+
       '<td class="setno">Set '+s+'</td>'+
       '<td>'+strip(P,true)+'</td>'+
@@ -261,14 +267,14 @@ function puttStation(tag, name, meta){
       '<th class="c">Made /'+P+'</th>'+
     '</tr></thead><tbody>'+rows+
     '<tr class="totalrow"><td colspan="3"><div class="total">'+
-      '<span class="of">Total made out of '+(5*P)+' &nbsp;=&nbsp; make %</span>'+
+      '<span class="of">Total made out of '+(PS*P)+' &nbsp;=&nbsp; make %</span>'+
       '<div class="bigbox"></div></div></td></tr>'+
     '</tbody></table></section>';
 }
 
 function netStation(){
   let rows = '';
-  for(let r=1;r<=5;r++){
+  for(let r=1;r<=DS;r++){
     rows += '<tr>'+
       '<td class="setno">Rd '+r+'</td>'+
       '<td>'+strip(D,false)+'</td>'+
@@ -286,8 +292,8 @@ function netStation(){
       '<th class="split">Forehand &middot; disc 1 &rarr; '+D+'</th><th class="c">In /'+D+'</th>'+
     '</tr></thead><tbody>'+rows+
     '<tr class="totalrow"><td colspan="5"><div class="total">'+
-      '<span class="of">Backhand /'+(5*D)+'</span><div class="bigbox"></div>'+
-      '<span class="of" style="margin-left:14px">Forehand /'+(5*D)+'</span><div class="bigbox"></div>'+
+      '<span class="of">Backhand /'+(DS*D)+'</span><div class="bigbox"></div>'+
+      '<span class="of" style="margin-left:14px">Forehand /'+(DS*D)+'</span><div class="bigbox"></div>'+
     '</div></td></tr></tbody></table></section>';
 }
 
@@ -301,17 +307,17 @@ function sheet(dateText){
         '<div class="stamp cond"><span>Wind / surface / notes</span><div class="line"></div></div>'+
       '</div>'+
     '</header>'+
-    puttStation('A','Putting &middot; 15 ft','5 sets of '+P+' &middot; '+(5*P)+' putts') +
-    puttStation('B','Putting &middot; 25 ft','5 sets of '+P+' &middot; '+(5*P)+' putts') +
+    puttStation('A','Putting &middot; 15 ft',PS+' sets of '+P+' &middot; '+(PS*P)+' putts') +
+    puttStation('B','Putting &middot; 25 ft',PS+' sets of '+P+' &middot; '+(PS*P)+' putts') +
     netStation() +
     '<footer class="footer">'+
       '<div class="notes">What was working / what to fix tomorrow</div>'+
       '<div class="noteline"></div><div class="noteline"></div>'+
       '<div class="daytotals">'+
-        '<div><span>15 ft made</span><b></b><em>of '+(5*P)+'</em></div>'+
-        '<div><span>25 ft made</span><b></b><em>of '+(5*P)+'</em></div>'+
-        '<div><span>Putts made</span><b></b><em>of '+(10*P)+'</em></div>'+
-        '<div><span>Net hits</span><b></b><em>of '+(10*D)+'</em></div>'+
+        '<div><span>15 ft made</span><b></b><em>of '+(PS*P)+'</em></div>'+
+        '<div><span>25 ft made</span><b></b><em>of '+(PS*P)+'</em></div>'+
+        '<div><span>Putts made</span><b></b><em>of '+(2*PS*P)+'</em></div>'+
+        '<div><span>Net hits</span><b></b><em>of '+(2*DS*D)+'</em></div>'+
       '</div>'+
     '</footer>'+
   '</article>';
