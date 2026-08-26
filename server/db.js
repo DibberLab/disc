@@ -98,7 +98,7 @@ function listSessions(since, userId) {
      owner's maxes to compute percentages correctly (History and viewing
      another user's Analytics), the same reason export.csv needs them. */
   const rows = d.prepare(
-    `SELECT s.*, u.username, u.putter_max, u.driver_max FROM sessions s
+    `SELECT s.*, u.username, u.display_name, u.putter_max, u.driver_max FROM sessions s
        JOIN users u ON u.id = s.user_id
       ${where} ORDER BY s.date`
   ).all(...params);
@@ -123,12 +123,15 @@ function getSession(userId, date) {
   return rowsToSessions([row], sets)[0];
 }
 
-/* {id, username, putterMax, driverMax} for every account. Used where a
-   caller needs everyone's per-user maxes at once — e.g. computing CSV
-   percentages correctly across sessions that belong to different people. */
+/* {id, username, displayName, putterMax, driverMax} for every account. Used
+   where a caller needs everyone's per-user maxes at once — e.g. computing
+   CSV percentages correctly across sessions that belong to different people. */
 function listUsers() {
-  return handle().prepare('SELECT id, username, putter_max, driver_max FROM users ORDER BY username').all()
-    .map((r) => ({ id: r.id, username: r.username, putterMax: r.putter_max, driverMax: r.driver_max }));
+  return handle().prepare('SELECT id, username, display_name, putter_max, driver_max FROM users ORDER BY username').all()
+    .map((r) => ({
+      id: r.id, username: r.username, displayName: r.display_name || r.username,
+      putterMax: r.putter_max, driverMax: r.driver_max
+    }));
 }
 
 /* Scoped to the caller — a sync pull should only ever hand back the

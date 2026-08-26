@@ -33,7 +33,12 @@ router.post('/login', (req, res) => {
 
   const token = auth.createSession(user.id);
   res.cookie(auth.COOKIE_NAME, token, cookieOpts());
-  res.json({ username: user.username, putterMax: user.putter_max, driverMax: user.driver_max });
+  res.json({
+    username: user.username,
+    displayName: user.display_name || user.username,
+    putterMax: user.putter_max,
+    driverMax: user.driver_max
+  });
 });
 
 router.post('/logout', (req, res) => {
@@ -46,7 +51,12 @@ router.post('/logout', (req, res) => {
 /* req.user is guaranteed here — index.js's auth gate already 401'd anything
    without a valid session before requests reach this router. */
 router.get('/me', (req, res) => {
-  res.json({ username: req.user.username, putterMax: req.user.putterMax, driverMax: req.user.driverMax });
+  res.json({
+    username: req.user.username,
+    displayName: req.user.displayName,
+    putterMax: req.user.putterMax,
+    driverMax: req.user.driverMax
+  });
 });
 
 /* Creates a new account. Deliberately NOT in index.js's OPEN_PATHS, so
@@ -55,8 +65,8 @@ router.get('/me', (req, res) => {
    needing shell access to run scripts/create-user.js). */
 router.post('/register', (req, res, next) => {
   try {
-    const { username, password } = req.body || {};
-    auth.createUser(username, password);
+    const { username, password, displayName } = req.body || {};
+    auth.createUser(username, password, displayName);
     res.status(201).json({ username });
   } catch (err) { next(err); }
 });

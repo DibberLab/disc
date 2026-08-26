@@ -30,11 +30,12 @@ server/
 public/
   index.html  styles.css  charts.js   carried over, index.html gained a login screen
   app.js                              storage seam swapped, gated behind DGAuth.boot()
-  auth.js                              NEW: login gate, talks to /api/login /logout /me
+  auth.js                              NEW: login gate, talks to /api/login /logout /me /register
   store.js                            NEW: localStorage cache + outbox + sync, per-user namespaced
   print-sheet.html                    printable version, maxes read from ?p=&d= query params
-scripts/create-user.js  create/reset a login account (also the only way to add one)
-test/                db.test.js, auth.test.js: schema, ownership, sync; store.test.js: client cache
+scripts/create-user.js  create/reset-password/rename/set-display-name for an account
+test/                db.test.js, auth.test.js, auth-client.test.js: schema, ownership, sync,
+                      login-form wiring; store.test.js: client cache
 deploy/               nginx site config
 scripts/backup.sh     nightly SQLite backup
 legacy/               the original single-file app, tarball, and spreadsheet
@@ -73,7 +74,12 @@ literal 20/12.
   (the in-app "Add account" button) but is gated exactly like every other
   route, so only an already-logged-in user can create another account.
   `scripts/create-user.js` is still the only way to create the very first
-  account, or to reset anyone's password.
+  account, and the only way to reset a password or rename an existing
+  account (`--rename-to`, `--display-name`).
+- **`username` (stable identity) and `displayName` (cosmetic, shown in the
+  UI) are separate** — `003_display_name.sql`. Falls back to `username` when
+  unset. Nothing keys off `displayName`; renaming someone's display name
+  never touches ownership, sessions, or login.
 - **Full visibility, scoped writes.** Every logged-in user sees every
   account's sessions (History, and Analytics via its user switcher). Nobody
   can create, edit, or delete a session that isn't their own — ownership is
@@ -119,6 +125,15 @@ literal 20/12.
 
 ## Guardrails
 
+- **`public/auth.js` wires the login form itself, on load — it does not wait
+  on `public/app.js`.** It used to: the login form only got a submit handler
+  from inside app.js's own boot(), so a single uncaught error anywhere in
+  app.js (a much bigger file, touching lots of DOM) left the login form
+  silently dead — a bare submit just reloaded the page, no error, nothing to
+  inspect. Reported as "no error messages, can't get past login, can't even
+  inspect the page" (a mobile browser with no devtools). `DGAuth.boot(fn)` is
+  now just "run fn once authenticated," decoupled from whether the login
+  screen itself works. Don't reintroduce that coupling.
 - **Set counts must agree** between `GRIDS[key].count` in `public/app.js` and
   `STATIONS[key].sets` in `server/config.js`. Change the number of sets in
   both or the client and server disagree about array length. The **max**

@@ -25,7 +25,7 @@ Colima, not Docker Desktop — `colima status` before assuming Docker is broken.
 ```bash
 cd ~/dibberlab/disc
 npm install
-npm test                     # ~44 tests, all should pass
+npm test                     # ~62 tests, all should pass
 docker compose up --build    # http://localhost:8412
 ```
 
@@ -125,8 +125,11 @@ ssh dibberlab-droplet "cd /var/www/disc && DB_FILE=./data/disc.sqlite node scrip
 ```
 
 It prompts for a password (input hidden) and upserts on username, so it's
-also how you reset a forgotten password or add another person later. SQLite's
-WAL mode makes this safe to run while the container is up.
+also how you reset a forgotten password. `--rename-to <newUsername>` and
+`--display-name <name>` update an existing account without touching its
+password (no prompt in that case). Adding *another* person once you're
+logged in doesn't need this at all — see the "Add account" button in the
+app. SQLite's WAL mode makes this safe to run while the container is up.
 
 ## Updating later
 

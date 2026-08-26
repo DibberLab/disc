@@ -19,10 +19,10 @@ first account gets created (and the only way to reset a password today).
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/login` | `{username, password}` → `200` + `Set-Cookie` + `{username, putterMax, driverMax}`, or `401`. |
+| `POST` | `/api/login` | `{username, password}` → `200` + `Set-Cookie` + `{username, displayName, putterMax, driverMax}`, or `401`. |
 | `POST` | `/api/logout` | Destroys the session, clears the cookie. `204`. |
-| `GET` | `/api/me` | `{username, putterMax, driverMax}` for the caller, or `401`. |
-| `POST` | `/api/register` | **Requires login.** `{username, password}` → `201` + `{username}`. New account gets default maxes (20/14). `400` on a taken username, an invalid one (2-32 chars, letters/numbers/`-`/`_`), or a password under 8 characters. |
+| `GET` | `/api/me` | `{username, displayName, putterMax, driverMax}` for the caller, or `401`. |
+| `POST` | `/api/register` | **Requires login.** `{username, password, displayName?}` → `201` + `{username}`. New account gets default maxes (20/14). `400` on a taken username, an invalid one (2-32 chars, letters/numbers/`-`/`_`), or a password under 8 characters. |
 
 ## The session shape
 
@@ -39,17 +39,21 @@ On a read (`GET`/`sync`/`export`), it also carries who it belongs to:
   "notes": "headwind out of the north",
   "updatedAt": "2026-08-26T14:03:11.212Z",
   "userId": 1,
-  "username": "andy",
+  "username": "amcmorrow",
+  "displayName": "Andy",
   "putterMax": 20,
   "driverMax": 14
 }
 ```
 
-`userId`/`username`/`putterMax`/`driverMax` are read-only — set by the server
-from who's logged in, and ignored if a client sends them on a write. `null`
-means that set was not thrown. `0` means it was thrown and nothing went in.
-These are different and the whole percentage model depends on the difference.
-Arrays are always length 5.
+`userId`/`username`/`displayName`/`putterMax`/`driverMax` are read-only — set
+by the server from who's logged in, and ignored if a client sends them on a
+write. `username` is the stable identity (login, ownership); `displayName`
+is purely cosmetic (falls back to `username` when unset — see
+`003_display_name.sql`) and is what the UI actually shows in History,
+Analytics, and the topbar. `null` means that set was not thrown. `0` means
+it was thrown and nothing went in. These are different and the whole
+percentage model depends on the difference. Arrays are always length 5.
 
 Putting stations (`p15`, `p25`) take `0`–`putterMax`. Net stations (`bh`,
 `fh`) take `0`–`driverMax` — per-user settings, not fixed constants (defaults

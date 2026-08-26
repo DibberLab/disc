@@ -40,8 +40,8 @@ test('migration is idempotent', () => {
   db.migrate();
   db.migrate();
   const rows = db.handle().prepare('SELECT version, name FROM schema_migrations').all();
-  assert.equal(rows.length, 2);
-  assert.deepEqual(rows.map((r) => r.version), [1, 2]);
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map((r) => r.version), [1, 2, 3]);
 });
 
 test('null sets round-trip as null, zeros round-trip as zero', () => {
@@ -204,6 +204,19 @@ test('listSessions is unscoped and tags every row with its owner', () => {
   const theirs = rows.find((s) => s.date === '2026-07-04' && s.userId === otherId);
   assert.ok(mine && mine.username === 'andy');
   assert.ok(theirs && theirs.username === 'riley');
+  // No display_name set for either seeded account — falls back to username.
+  assert.equal(mine.displayName, 'andy');
+  assert.equal(theirs.displayName, 'riley');
+});
+
+test('listUsers includes displayName, falling back to username when unset', () => {
+  const users = db.listUsers();
+  const andyRow = users.find((u) => u.username === 'andy');
+  assert.equal(andyRow.displayName, 'andy');
+
+  db.handle().prepare('UPDATE users SET display_name = ? WHERE username = ?').run('Andy', 'andy');
+  const updated = db.listUsers().find((u) => u.username === 'andy');
+  assert.equal(updated.displayName, 'Andy');
 });
 
 test('ISO timestamps compare correctly as strings', () => {

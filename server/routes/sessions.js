@@ -156,7 +156,7 @@ router.get('/export.csv', (req, res) => {
     const driverMax = owner ? owner.driverMax : 14;
     const putts = s.p15.concat(s.p25);
     const net = s.bh.concat(s.fh);
-    const row = [s.date, s.username]
+    const row = [s.date, s.displayName]
       .concat(s.p15.map(csvCell), [sum(s.p15), pctCell(s.p15, putterMax)])
       .concat(s.p25.map(csvCell), [sum(s.p25), pctCell(s.p25, putterMax)])
       .concat([sum(putts), pctCell(putts, putterMax)])

@@ -86,17 +86,23 @@ function hasAnyThrow(session) {
 }
 
 /* Rows out of the DB -> wire shape. `setRows` may cover many sessions.
-   `userId`/`username`/`putterMax`/`driverMax` are only present when the row
-   came from a query that joined `users` (the full-visibility read paths) —
-   a plain per-owner query doesn't need to tell the caller who they already
-   know they are. putterMax/driverMax let the client compute percentages
-   correctly for a row that isn't necessarily the viewer's own. */
+   `userId`/`username`/`displayName`/`putterMax`/`driverMax` are only present
+   when the row came from a query that joined `users` (the full-visibility
+   read paths) — a plain per-owner query doesn't need to tell the caller who
+   they already know they are. displayName falls back to username when no
+   display name is set (see 003_display_name.sql) — always present whenever
+   username is, never a separate "is it set" check for callers. putterMax/
+   driverMax let the client compute percentages correctly for a row that
+   isn't necessarily the viewer's own. */
 function rowsToSessions(sessionRows, setRows) {
   const byId = new Map();
   for (const r of sessionRows) {
     const s = { date: r.date, notes: r.notes, updatedAt: r.updated_at };
     if (r.user_id !== undefined) s.userId = r.user_id;
-    if (r.username !== undefined) s.username = r.username;
+    if (r.username !== undefined) {
+      s.username = r.username;
+      s.displayName = r.display_name || r.username;
+    }
     if (r.putter_max !== undefined) s.putterMax = r.putter_max;
     if (r.driver_max !== undefined) s.driverMax = r.driver_max;
     for (const k of STATION_KEYS) s[k] = new Array(STATIONS[k].sets).fill(null);

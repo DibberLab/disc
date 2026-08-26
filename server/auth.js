@@ -53,7 +53,7 @@ function getSession(token) {
   if (!token) return null;
   const d = db.handle();
   const row = d.prepare(
-    `SELECT w.token, u.id AS user_id, u.username, u.putter_max, u.driver_max
+    `SELECT w.token, u.id AS user_id, u.username, u.display_name, u.putter_max, u.driver_max
        FROM web_sessions w JOIN users u ON u.id = w.user_id
       WHERE w.token = ?`
   ).get(token);
@@ -62,6 +62,7 @@ function getSession(token) {
   return {
     id: row.user_id,
     username: row.username,
+    displayName: row.display_name || row.username,
     putterMax: row.putter_max,
     driverMax: row.driver_max
   };
@@ -74,17 +75,18 @@ function destroySession(token) {
 
 function findUserByUsername(username) {
   return db.handle().prepare(
-    'SELECT id, username, password_hash, putter_max, driver_max FROM users WHERE username = ?'
+    'SELECT id, username, display_name, password_hash, putter_max, driver_max FROM users WHERE username = ?'
   ).get(username);
 }
 
 /* Creates a new account with default putter/driver maxes (20/14 — see the
-   `users` table default). Used by both scripts/create-user.js and
+   `users` table default). `displayName` is optional and purely cosmetic —
+   see 003_display_name.sql. Used by both scripts/create-user.js and
    POST /api/register; the route is what gates this to logged-in users only
    — there's deliberately no public signup, this function itself doesn't
    know or care who's calling it. Throws ValidationError (never a raw SQLite
    error) so callers can turn it into a clean 400. */
-function createUser(username, password) {
+function createUser(username, password, displayName) {
   if (typeof username !== 'string' || !USERNAME_RE.test(username)) {
     throw new ValidationError('username must be 2-32 characters: letters, numbers, - or _');
   }
@@ -95,9 +97,10 @@ function createUser(username, password) {
     throw new ValidationError('that username is already taken');
   }
   const hash = hashPassword(password);
+  const cleanDisplayName = typeof displayName === 'string' && displayName.trim() ? displayName.trim() : null;
   const info = db.handle().prepare(
-    'INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)'
-  ).run(username, hash, db.nowIso());
+    'INSERT INTO users (username, display_name, password_hash, created_at) VALUES (?, ?, ?, ?)'
+  ).run(username, cleanDisplayName, hash, db.nowIso());
   return info.lastInsertRowid;
 }
 

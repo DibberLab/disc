@@ -39,11 +39,18 @@ test('createSession/getSession/destroySession round-trip', () => {
   const session = auth.getSession(token);
   assert.equal(session.id, userId);
   assert.equal(session.username, 'sessiontest');
+  assert.equal(session.displayName, 'sessiontest', 'no display name set falls back to the username');
   assert.equal(session.putterMax, 20);
   assert.equal(session.driverMax, 14);
 
   auth.destroySession(token);
   assert.equal(auth.getSession(token), null);
+});
+
+test('getSession returns the display name when one is set, not the username', () => {
+  const userId = auth.createUser('withdisplay', 'a-fine-password', 'Fancy Name');
+  const token = auth.createSession(userId);
+  assert.equal(auth.getSession(token).displayName, 'Fancy Name');
 });
 
 test('getSession returns null for an unknown or missing token', () => {

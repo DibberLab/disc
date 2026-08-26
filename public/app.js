@@ -158,8 +158,9 @@
      snapshot, so a save/delete shows up immediately without waiting on a
      network round trip. */
   function rebuildAllSessions() {
+    var me = DGAuth.me();
     var mine = sessions.map(function (s) {
-      var copy = Object.assign({}, s, { username: DGAuth.me().username, mine: true });
+      var copy = Object.assign({}, s, { username: me.username, displayName: me.displayName, mine: true });
       return copy;
     });
     var others = DGStore.readRoster().filter(function (s) { return s.username !== DGAuth.me().username; })
@@ -254,7 +255,7 @@
     var rows = allSessions.slice().reverse().map(function (s) {
       return '<tr>' +
         '<td>' + longDate(s.date) + '</td>' +
-        '<td class="byline">' + esc(s.username) + '</td>' +
+        '<td class="byline">' + esc(s.displayName || s.username) + '</td>' +
         '<td>' + sum(s.p15) + '<span style="color:var(--muted)">/' + thrown(s.p15, pMax(s)) + '</span></td>' +
         '<td>' + pct(rate(s.p15, pMax(s))) + '</td>' +
         '<td>' + sum(s.p25) + '<span style="color:var(--muted)">/' + thrown(s.p25, pMax(s)) + '</span></td>' +
@@ -476,19 +477,29 @@
   }
 
   /* Rebuilds the "Viewing" dropdown from whoever has at least one session,
-     logged-in user first. Keeps the current selection if it's still valid. */
+     logged-in user first. Keyed by username (the stable identity) but
+     labeled with each person's display name. Keeps the current selection
+     if it's still valid. */
   function refreshUserSwitcher() {
     var sel = $('#analyticsUser');
-    var me = DGAuth.me().username;
-    var names = [];
-    allSessions.forEach(function (s) { if (names.indexOf(s.username) === -1) names.push(s.username); });
-    names.sort(function (a, b) { return a === me ? -1 : b === me ? 1 : a.localeCompare(b); });
-    if (!names.length) names.push(me);
-    if (!viewingUsername || names.indexOf(viewingUsername) === -1) viewingUsername = me;
+    var me = DGAuth.me();
+    var people = [];   // [{username, displayName}], unique by username
+    allSessions.forEach(function (s) {
+      if (!people.some(function (p) { return p.username === s.username; })) {
+        people.push({ username: s.username, displayName: s.displayName || s.username });
+      }
+    });
+    people.sort(function (a, b) {
+      return a.username === me.username ? -1 : b.username === me.username ? 1 : a.displayName.localeCompare(b.displayName);
+    });
+    if (!people.length) people.push({ username: me.username, displayName: me.displayName });
+    if (!viewingUsername || !people.some(function (p) { return p.username === viewingUsername; })) {
+      viewingUsername = me.username;
+    }
 
-    sel.innerHTML = names.map(function (n) {
-      return '<option value="' + esc(n) + '"' + (n === viewingUsername ? ' selected' : '') + '>' +
-        esc(n === me ? n + ' (you)' : n) + '</option>';
+    sel.innerHTML = people.map(function (p) {
+      return '<option value="' + esc(p.username) + '"' + (p.username === viewingUsername ? ' selected' : '') + '>' +
+        esc(p.username === me.username ? p.displayName + ' (you)' : p.displayName) + '</option>';
     }).join('');
   }
 
