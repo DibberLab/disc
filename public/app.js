@@ -749,7 +749,7 @@
     $('#bagCounts').textContent = me.putterMax + ' putters · ' + me.driverMax + ' mids & drivers';
     $('#p15Count').textContent = me.putterSets + ' sets of ' + me.putterMax;
     $('#p25Count').textContent = me.putterSets + ' sets of ' + me.putterMax;
-    $('#netMax').textContent = me.driverMax + ' mids & drivers';
+    $('#netMax').textContent = me.driverMax + ' Drivers';
     $('#printSheet').href = 'print-sheet.html?p=' + me.putterMax + '&d=' + me.driverMax +
       '&ps=' + me.putterSets + '&ds=' + me.driverSets;
 
